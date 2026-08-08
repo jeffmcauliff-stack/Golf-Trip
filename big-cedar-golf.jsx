@@ -1,0 +1,1378 @@
+import React, { useState, useEffect, useMemo, useRef } from "react";
+
+/* ============ static data ============ */
+const PLAYERS = [
+  { name: "Jeff",   color: "#2E5E3A" },
+  { name: "Kevin",  color: "#B5683C" },
+  { name: "Carson", color: "#4A6FA5" },
+  { name: "Brian",  color: "#C9A24B" },
+];
+
+// Hole-by-hole pars verified from published Big Cedar scorecards.
+const COURSES = [
+  {
+    id: "twin", name: "Twin Hills Shootout", designer: "Donald Sechrest · Twin Hills C.C., Joplin MO",
+    type: "Full games · 2v2 match", championship: true,
+    matchPlay: { teamA: ["Jeff", "Carson"], teamB: ["Kevin", "Brian"], stake: 10 },
+    teeTime: { date: "2026-09-02", time: "1:00 PM" },
+    defaultPars: [4, 4, 4, 4, 3, 5, 5, 3, 4, 5, 3, 4, 4, 3, 5, 5, 4, 3], // par 72 (2019 Twin Hills scorecard)
+    note: "Opening round. Individual scores count toward the trip. Full games run here — skins, Nassau, and greenies — on top of a 2v2 best-ball match (Jeff/Carson vs Kevin/Brian, $10/player). Any pushes carry to the Top of the Rock tiebreaker.",
+  },
+  {
+    id: "paynes", name: "Payne's Valley", designer: "TGR Design (Tiger Woods)",
+    type: "Championship", championship: true,
+    // 18 scoring holes (par 72; 3s at 2,5,10,16) + bonus par-3 19th "Big Rock"
+    matchPlay: { teamA: ["Carson", "Brian"], teamB: ["Kevin", "Jeff"], stake: 10 },
+    teeTime: { date: "2026-09-05", time: "12:10 PM", conf: "CN90LM1JFP7H9M" },
+    defaultPars: [4,3,4,5,3,4,4,5,4, 3,4,4,5,4,4,3,4,5, 3],
+    note: "The bonus par-3 19th ('Big Rock') is on the scorecard for the Tiger Greenie. It doesn't count toward your 18-hole total, skins, or Nassau.",
+  },
+  {
+    id: "ozarks", name: "Ozarks National", designer: "Coore & Crenshaw",
+    type: "Championship", championship: true,
+    matchPlay: { teamA: ["Carson", "Kevin"], teamB: ["Brian", "Jeff"], stake: 10 },
+    teeTime: { date: "2026-09-03", time: "9:40 AM", conf: "CN3PMPGSN8JMRM" },
+    defaultPars: [5,3,4,5,4,3,4,3,5, 4,5,3,4,4,4,4,3,4], // par 71; 3s at 2,6,8,12,17
+    note: "Front nine is a 3-3-3 layout; hole 6 is a par 3.",
+  },
+  {
+    id: "buffalo", name: "Buffalo Ridge", designer: "Tom Fazio",
+    type: "Championship", championship: true,
+    matchPlay: { teamA: ["Carson", "Jeff"], teamB: ["Kevin", "Brian"], stake: 10 },
+    teeTime: { date: "2026-09-04", time: "7:30 AM", conf: "CN6Y972KR9DMX7" },
+    defaultPars: [5,4,4,3,4,4,3,5,3, 4,3,4,4,5,4,4,3,5], // par 71; 3s at 4,7,9,11,17
+    note: "Free-roaming bison on property.",
+  },
+  {
+    id: "cliff", name: "Cliffhangers", designer: "Johnny & Paul Morris",
+    type: "Par-3", championship: false,
+    teeTime: { date: "2026-09-04", time: "2:30 PM", conf: "CN2DMVTKL0M0KM" },
+    defaultPars: Array(18).fill(3), note: "Newest course — 18 par-3 holes.",
+  },
+  {
+    id: "mountain", name: "Mountain Top", designer: "Gary Player & Johnny Morris",
+    type: "Short / walking", championship: false,
+    teeTime: { date: "2026-09-05", time: "8:00 AM" },
+    defaultPars: Array(13).fill(3), note: "13 holes, walking only — no carts.",
+  },
+  {
+    id: "tor", name: "Top of the Rock", designer: "Jack Nicklaus",
+    type: "Par-3", championship: false,
+    teeTime: { date: "2026-09-03", time: "5:00 PM", conf: "CN3XC7WW1NWL7D" },
+    defaultPars: Array(9).fill(3), note: "9 par-3 holes; Champions Tour host.",
+  },
+  {
+    id: "torputt", name: "Top of the Rock Putting Course", designer: "Johnny & JP Morris",
+    type: "Putting · Tiebreaker", championship: false, tiebreaker: true,
+    teeTime: { date: "2026-09-03", time: "3:00 PM" },
+    defaultPars: Array(9).fill(3), // 9-hole bentgrass putting course, par 3/hole (total 27)
+    note: "First tiebreaker. Lowest total wins and sweeps every bet pushed up to this point. 2-acre bentgrass putting course overlooking Table Rock Lake.",
+  },
+  {
+    id: "watson", name: "Tom Watson Putting Course", designer: "Tom Watson",
+    type: "Putting · Tiebreaker", championship: false, tiebreaker: true,
+    teeTime: { date: "2026-09-05", time: "5:00 PM" },
+    defaultPars: Array(9).fill(3), // 9-hole putting course, par 3/hole (total 27)
+    note: "Second tiebreaker. Lowest total wins and sweeps every bet pushed after Top of the Rock. Not part of skins, Nassau, greenies, or the scoring leaderboard.",
+  },
+];
+const courseById = (id) => COURSES.find((c) => c.id === id);
+
+const DEFAULT_STAKES = { skin: 2, nassauFront: 10, nassauBack: 10, nassauTotal: 10, greenie: 5, tiger: 5, i70: 20, dat: 1 };
+const K_ROUNDS = "bigcedar_rounds", K_PARS = "bigcedar_pars", K_STAKES = "bigcedar_stakes", K_DRAFT = "bigcedar_draft";
+
+/* ============ helpers ============ */
+const today = () => new Date().toISOString().slice(0, 10);
+const fmtDate = (d) => new Date(d + "T00:00:00").toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" });
+const toParStr = (n) => (n === 0 ? "E" : n > 0 ? `+${n}` : `${n}`);
+const money = (n) => { const v = Math.round(n * 100) / 100; return `${v < 0 ? "-$" : "$"}${Math.abs(v).toLocaleString()}`; };
+const isNum = (s) => s !== null && s !== undefined && s !== "" && !isNaN(s);
+
+const getPars = (courseId, overrides) => (overrides && overrides[courseId]) || courseById(courseId).defaultPars;
+const sumRange = (a, from, to) => a.slice(from, to).reduce((x, y) => x + y, 0);
+// holes 1..N that actually count toward the round (Payne's 19th is a bonus)
+const scoringHoles = (courseId) => (courseId === "paynes" ? 18 : courseById(courseId).defaultPars.length);
+const displayPar = (courseId, overrides) => sumRange(getPars(courseId, overrides), 0, scoringHoles(courseId));
+const isTigerHole = (courseId, i) => courseId === "paynes" && i === 18;
+
+function participantsOf(r) {
+  return PLAYERS.filter((p) => {
+    if (r.holeScores) return (r.holeScores[p.name] || []).some(isNum);
+    if (r.scores) return r.scores[p.name] != null;
+    return false;
+  }).map((p) => p.name);
+}
+function roundTotal(r, name) {
+  if (r.holeScores) {
+    const sc = scoringHoles(r.courseId); const arr = r.holeScores[name] || [];
+    let sum = 0, any = false;
+    for (let i = 0; i < sc; i++) if (isNum(arr[i])) { sum += Number(arr[i]); any = true; }
+    return any ? sum : null;
+  }
+  if (r.scores) return r.scores[name] ?? null;
+  return null;
+}
+function roundToPar(r, name, overrides) {
+  const pars = getPars(r.courseId, overrides);
+  if (r.holeScores) {
+    const sc = scoringHoles(r.courseId); const arr = r.holeScores[name] || [];
+    let strokes = 0, par = 0, any = false;
+    for (let i = 0; i < sc; i++) if (isNum(arr[i])) { strokes += Number(arr[i]); par += pars[i]; any = true; }
+    return any ? strokes - par : null;
+  }
+  if (r.scores && r.scores[name] != null) return r.scores[name] - displayPar(r.courseId, overrides);
+  return null;
+}
+function roundWinner(r) {
+  const t = PLAYERS.map((p) => ({ name: p.name, t: roundTotal(r, p.name) })).filter((x) => x.t != null);
+  if (!t.length) return null;
+  const min = Math.min(...t.map((x) => x.t)); const low = t.filter((x) => x.t === min);
+  return low.length === 1 ? low[0].name : null;
+}
+
+/* ---- betting math ---- */
+function computeSkins(r, overrides, skinValue) {
+  if (!r.holeScores) return null;
+  const sc = scoringHoles(r.courseId);
+  const winners = []; let pot = 0;
+  for (let i = 0; i < sc; i++) {
+    const e = PLAYERS.map((p) => ({ name: p.name, s: r.holeScores[p.name]?.[i] })).filter((x) => isNum(x.s)).map((x) => ({ ...x, s: Number(x.s) }));
+    pot += skinValue;
+    if (!e.length) continue;
+    const min = Math.min(...e.map((x) => x.s)); const low = e.filter((x) => x.s === min);
+    if (low.length === 1) { winners.push({ hole: i + 1, name: low[0].name, value: pot }); pot = 0; }
+  }
+  return { winners, carry: pot };
+}
+function computeNassau(r, overrides, stakes) {
+  if (!r.holeScores) return null;
+  const holes = scoringHoles(r.courseId);
+  const seg = (from, to, stake, label) => {
+    const totals = PLAYERS.map((p) => {
+      let sum = 0, count = 0;
+      for (let i = from; i < to; i++) { const s = r.holeScores[p.name]?.[i]; if (isNum(s)) { sum += Number(s); count++; } }
+      return { name: p.name, sum, count };
+    }).filter((t) => t.count > 0);
+    if (!totals.length) return { label, stake, winner: null, totals: [] };
+    const min = Math.min(...totals.map((t) => t.sum)); const low = totals.filter((t) => t.sum === min);
+    return { label, stake, winner: low.length === 1 ? low[0].name : null, push: low.length > 1, totals };
+  };
+  if (holes >= 18) return [seg(0, 9, stakes.nassauFront, "Front 9"), seg(9, 18, stakes.nassauBack, "Back 9"), seg(0, 18, stakes.nassauTotal, "Overall 18")];
+  return [seg(0, holes, stakes.nassauTotal, `Total ${holes}`)];
+}
+function computeGreenies(r, overrides, stakes) {
+  const course = courseById(r.courseId);
+  if (!course.championship) return null;
+  const pars = getPars(r.courseId, overrides); const sc = scoringHoles(r.courseId);
+  const res = [];
+  pars.forEach((par, i) => {
+    if (isTigerHole(r.courseId, i)) res.push({ hole: 19, idx: i, name: r.greenies?.[i] || null, value: stakes.tiger, tiger: true });
+    else if (par === 3 && i < sc) res.push({ hole: i + 1, idx: i, name: r.greenies?.[i] || null, value: stakes.greenie });
+  });
+  return { res };
+}
+
+// 2v2 best-ball match play (lower team best-ball wins the hole; more holes won wins the match)
+function computeMatch(r, overrides) {
+  const course = courseById(r.courseId); const mp = course.matchPlay;
+  if (!mp || !r.holeScores) return null;
+  const sc = scoringHoles(r.courseId);
+  let holesA = 0, holesB = 0, halved = 0;
+  for (let i = 0; i < sc; i++) {
+    const a = mp.teamA.map((n) => r.holeScores[n]?.[i]).filter(isNum).map(Number);
+    const b = mp.teamB.map((n) => r.holeScores[n]?.[i]).filter(isNum).map(Number);
+    if (!a.length || !b.length) continue;
+    const ba = Math.min(...a), bb = Math.min(...b);
+    if (ba < bb) holesA++; else if (bb < ba) holesB++; else halved++;
+  }
+  const margin = holesA - holesB;
+  return { mp, holesA, holesB, halved, margin, winner: margin > 0 ? "A" : margin < 0 ? "B" : null };
+}
+
+// The I-70 Cup: fixed regional teams for the whole trip, regardless of daily pairings.
+const I70 = {
+  KC: { key: "KC", label: "Kansas City", players: ["Jeff", "Carson"], color: "#134A8E" },
+  STL: { key: "STL", label: "St. Louis", players: ["Kevin", "Brian"], color: "#B0201F" },
+  stake: 20,
+};
+const I70_COURSES = ["twin", "ozarks", "buffalo", "paynes"];
+function i70Cup(rounds) {
+  const perRound = [];
+  let kc = 0, stl = 0, halved = 0;
+  rounds.forEach((r) => {
+    const course = courseById(r.courseId);
+    if (!r.holeScores || !I70_COURSES.includes(r.courseId)) return;
+    const sc = scoringHoles(r.courseId);
+    let a = 0, b = 0, h = 0, played = 0;
+    for (let i = 0; i < sc; i++) {
+      const kv = I70.KC.players.map((n) => r.holeScores[n]?.[i]).filter(isNum).map(Number);
+      const sv = I70.STL.players.map((n) => r.holeScores[n]?.[i]).filter(isNum).map(Number);
+      if (!kv.length || !sv.length) continue;
+      played++;
+      const bk = Math.min(...kv), bs = Math.min(...sv);
+      if (bk < bs) a++; else if (bs < bk) b++; else h++;
+    }
+    if (played) { kc += a; stl += b; halved += h; perRound.push({ courseId: r.courseId, name: course.name, kc: a, stl: b, halved: h }); }
+  });
+  const scored = new Set(perRound.map((x) => x.courseId));
+  const complete = perRound.length > 0 && I70_COURSES.every((id) => scored.has(id));
+  return { kc, stl, halved, net: kc - stl, perRound, complete };
+}
+const I70_IMG = "data:image/png;base64,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";
+function I70Sign({ size = 30 }) {
+  return <img src={I70_IMG} alt="Interstate 70" width={size} height={Math.round(size * 127 / 128)} style={{ display: "block", flexShrink: 0 }} />;
+}
+function I70Strip({ rounds }) {
+  const cup = i70Cup((rounds || []).filter((r) => r.holeScores));
+  if (cup.perRound.length === 0) return null;
+  return (
+    <section className="rounded-2xl px-3 py-2 flex items-center gap-2" style={{ background: C.card, border: `1px solid ${C.line}` }}>
+      <I70Sign size={24} />
+      <span className="text-xs font-bold" style={{ color: C.gold, letterSpacing: "0.12em" }}>I-70 CUP</span>
+      <span className="ml-auto text-sm font-bold" style={{ fontFamily: serif }}>
+        <span style={{ color: I70.KC.color }}>KC {cup.kc}</span>
+        <span style={{ color: C.muted }}> – </span>
+        <span style={{ color: I70.STL.color }}>{cup.stl} STL</span>
+      </span>
+      <span className="text-xs font-semibold" style={{ color: cup.net > 0 ? I70.KC.color : cup.net < 0 ? I70.STL.color : C.muted }}>{cup.net === 0 ? "AS" : `${cup.net > 0 ? "KC" : "STL"} +${Math.abs(cup.net)}`}</span>
+    </section>
+  );
+}
+
+// zero-sum net per player for one round (each game = every player antes the stake, low/closest takes the pot)
+function roundNet(r, overrides, stakes) {
+  const by = {}; PLAYERS.forEach((p) => (by[p.name] = { skins: 0, nassau: 0, greenies: 0, match: 0, tiebreak: 0, greenieCount: 0, total: 0 }));
+  const course = courseById(r.courseId);
+  if (course.tiebreaker) return by; // putting course carries no per-round bets
+  if (course.matchPlay) {
+    const m = computeMatch(r, overrides);
+    if (m && m.winner) {
+      const winners = m.winner === "A" ? m.mp.teamA : m.mp.teamB;
+      const losers = m.winner === "A" ? m.mp.teamB : m.mp.teamA;
+      winners.forEach((n) => (by[n].match += course.matchPlay.stake));
+      losers.forEach((n) => (by[n].match -= course.matchPlay.stake));
+    }
+  }
+  if (!course.matchOnly) {
+    const parts = participantsOf(r);
+    const award = (cat, winner, stake, payers) => {
+      const losers = payers.filter((n) => n !== winner);
+      by[winner][cat] += stake * losers.length;
+      losers.forEach((n) => (by[n][cat] -= stake));
+    };
+    const sk = computeSkins(r, overrides, stakes.skin);
+    if (sk) sk.winners.forEach((w) => award("skins", w.name, w.value, parts));
+    const na = computeNassau(r, overrides, stakes);
+    if (na) na.forEach((s) => { if (s.winner) award("nassau", s.winner, s.stake, s.totals.map((t) => t.name)); });
+    const gr = computeGreenies(r, overrides, stakes);
+    if (gr) gr.res.forEach((g) => { if (g.name) { award("greenies", g.name, g.value, parts); by[g.name].greenieCount += 1; } });
+  }
+  PLAYERS.forEach((p) => (by[p.name].total = by[p.name].skins + by[p.name].nassau + by[p.name].greenies + by[p.name].match));
+  return by;
+}
+// who wins the Tom Watson tiebreaker (lowest aggregate putting total)
+function whenKey(c) {
+  const tt = c && c.teeTime; if (!tt || !tt.date) return Infinity;
+  const [Y, M, D] = tt.date.split("-").map(Number);
+  let hh = 0, mm = 0;
+  const m = (tt.time || "").match(/(\d+):(\d+)\s*(AM|PM)?/i);
+  if (m) { hh = (Number(m[1]) % 12) + (/pm/i.test(m[3] || "") ? 12 : 0); mm = Number(m[2]); }
+  return (((Y * 12 + M) * 31 + D) * 1440) + hh * 60 + mm;
+}
+function tiebreakOrder() {
+  return COURSES.filter((c) => c.tiebreaker).slice().sort((a, b) => whenKey(a) - whenKey(b));
+}
+// the tiebreaker that settles a betting round's pushes: first tiebreaker played after it
+function settlingTiebreaker(courseId) {
+  const w = whenKey(courseById(courseId));
+  const tbs = tiebreakOrder();
+  const hit = tbs.find((tb) => whenKey(tb) > w);
+  return hit ? hit.id : (tbs.length ? tbs[tbs.length - 1].id : null);
+}
+// per-tiebreaker putting result (lowest aggregate total on that course wins)
+function tiebreakResults(rounds) {
+  return tiebreakOrder().map((c) => {
+    const rs = rounds.filter((r) => r.courseId === c.id);
+    const tot = {}; PLAYERS.forEach((p) => (tot[p.name] = null));
+    rs.forEach((r) => PLAYERS.forEach((p) => { const t = roundTotal(r, p.name); if (t != null) tot[p.name] = (tot[p.name] || 0) + t; }));
+    const e = PLAYERS.map((p) => ({ name: p.name, t: tot[p.name] })).filter((x) => x.t != null);
+    const played = rs.length > 0 && e.length > 0;
+    const min = e.length ? Math.min(...e.map((x) => x.t)) : null;
+    const low = e.filter((x) => x.t === min);
+    return { courseId: c.id, name: c.name, played, winner: played && low.length === 1 ? low[0].name : null, tie: played && low.length > 1, totals: tot, low: min };
+  });
+}
+// pushed / unclaimed bets, each tagged with the tiebreaker (settledBy) that will settle it
+function allTiedBets(rounds, overrides, stakes) {
+  const out = [];
+  rounds.filter((r) => !courseById(r.courseId).tiebreaker && !courseById(r.courseId).matchOnly).forEach((r) => {
+    const tag = courseById(r.courseId).name.split(" ")[0];
+    const settledBy = settlingTiebreaker(r.courseId);
+    const push = (label, value, participants) => out.push({ id: r.id, label, value, participants, settledBy });
+    const na = computeNassau(r, overrides, stakes);
+    if (na) na.forEach((s) => { if (s.push) push(`${tag} · ${s.label} push`, s.stake, s.totals.map((t) => t.name)); });
+    const sk = computeSkins(r, overrides, stakes.skin);
+    if (sk && sk.carry > 0) push(`${tag} · skins carry`, sk.carry, participantsOf(r));
+    const gr = computeGreenies(r, overrides, stakes);
+    if (gr) gr.res.forEach((g) => { if (!g.name) push(`${tag} · ${g.tiger ? "Tiger greenie" : "greenie H" + g.hole} unclaimed`, g.value, participantsOf(r)); });
+  });
+  return out;
+}
+// Doug Adams Tax: $rate for every over-par hole at Twin Hills; pool goes to the first tiebreaker
+function dougAdamsTax(rounds, overrides, rate) {
+  const r = rate == null ? 1 : rate;
+  const by = {}; PLAYERS.forEach((p) => (by[p.name] = 0));
+  const pars = getPars("twin", overrides);
+  const sc = scoringHoles("twin");
+  rounds.filter((x) => x.courseId === "twin" && x.holeScores).forEach((rd) => {
+    PLAYERS.forEach((p) => { const arr = rd.holeScores[p.name] || []; for (let i = 0; i < sc; i++) { const s = arr[i]; if (isNum(s) && Number(s) > pars[i]) by[p.name] += r; } });
+  });
+  const pool = PLAYERS.reduce((a, p) => a + by[p.name], 0);
+  return { by, pool };
+}
+function seasonMoney(rounds, overrides, stakes) {
+  const t = {}; PLAYERS.forEach((p) => (t[p.name] = { skins: 0, nassau: 0, greenies: 0, match: 0, tiebreak: 0, greenieCount: 0, total: 0 }));
+  rounds.forEach((r) => { const by = roundNet(r, overrides, stakes); PLAYERS.forEach((p) => { const b = by[p.name]; ["skins", "nassau", "greenies", "match", "greenieCount"].forEach((k) => (t[p.name][k] += b[k])); }); });
+  const tbs = tiebreakResults(rounds);
+  const tied = allTiedBets(rounds, overrides, stakes);
+  tbs.forEach((tb) => { if (!tb.winner) return; tied.filter((b) => b.settledBy === tb.courseId).forEach((b) => { const losers = b.participants.filter((n) => n !== tb.winner); t[tb.winner].tiebreak += b.value * losers.length; losers.forEach((n) => (t[n].tiebreak -= b.value)); }); });
+  const tax = dougAdamsTax(rounds, overrides, stakes.dat);
+  const firstTb = tbs[0];
+  if (firstTb && firstTb.winner && tax.pool > 0) { PLAYERS.forEach((p) => (t[p.name].tiebreak -= tax.by[p.name])); t[firstTb.winner].tiebreak += tax.pool; }
+  PLAYERS.forEach((p) => (t[p.name].total = t[p.name].skins + t[p.name].nassau + t[p.name].greenies + t[p.name].match + t[p.name].tiebreak));
+  return t;
+}
+function settleUp(tally) {
+  const bal = PLAYERS.map((p) => ({ name: p.name, amt: Math.round(tally[p.name].total * 100) / 100 })).filter((x) => Math.abs(x.amt) > 0.005);
+  const D = bal.filter((x) => x.amt < 0).map((x) => ({ name: x.name, amt: -x.amt })).sort((a, b) => b.amt - a.amt);
+  const Cr = bal.filter((x) => x.amt > 0).map((x) => ({ ...x })).sort((a, b) => b.amt - a.amt);
+  const tx = []; let i = 0, j = 0;
+  while (i < D.length && j < Cr.length) {
+    const pay = Math.min(D[i].amt, Cr[j].amt);
+    tx.push({ from: D[i].name, to: Cr[j].name, amt: Math.round(pay * 100) / 100 });
+    D[i].amt -= pay; Cr[j].amt -= pay;
+    if (D[i].amt <= 0.005) i++; if (Cr[j].amt <= 0.005) j++;
+  }
+  return tx;
+}
+
+/* ============ tokens ============ */
+const C = { pine: "#1B3A2F", fairway: "#2E5E3A", parchment: "#F3EEE3", card: "#FBF8F1", line: "#D9CFBC", ink: "#20211E", gold: "#C9A24B", muted: "#6F6A5E", over: "#B22222" };
+const serif = "Georgia, 'Times New Roman', serif";
+const parColor = (n) => (n > 0 ? C.over : n < 0 ? C.pine : C.ink);
+const netColor = (n) => (n > 0 ? C.fairway : n < 0 ? C.over : C.muted);
+const colorOf = (name) => PLAYERS.find((p) => p.name === name).color;
+
+/* ============ app ============ */
+export default function App() {
+  const [tab, setTab] = useState("play");
+  const [rounds, setRounds] = useState([]);
+  const [pars, setPars] = useState({});
+  const [stakes, setStakes] = useState(DEFAULT_STAKES);
+  const [draft, setDraft] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [saveError, setSaveError] = useState(false);
+
+  useEffect(() => {
+    (async () => {
+      try { const r = await window.storage.get(K_ROUNDS); if (r?.value) setRounds(JSON.parse(r.value)); } catch (e) {}
+      try { const p = await window.storage.get(K_PARS); if (p?.value) setPars(JSON.parse(p.value)); } catch (e) {}
+      try { const s = await window.storage.get(K_STAKES); if (s?.value) setStakes({ ...DEFAULT_STAKES, ...JSON.parse(s.value) }); } catch (e) {}
+      try { const d = await window.storage.get(K_DRAFT); if (d?.value) setDraft(JSON.parse(d.value)); } catch (e) {}
+      setLoading(false);
+    })();
+  }, []);
+  const save = async (key, value, setter) => { setter(value); try { const ok = await window.storage.set(key, JSON.stringify(value)); setSaveError(!ok); } catch (e) { setSaveError(true); } };
+  useEffect(() => { if (loading) return; const t = setTimeout(() => { try { if (draft) window.storage.set(K_DRAFT, JSON.stringify(draft)); else window.storage.delete(K_DRAFT); } catch (e) {} }, 400); return () => clearTimeout(t); }, [draft, loading]);
+
+  const sorted = useMemo(() => [...rounds].sort((a, b) => a.date.localeCompare(b.date) || a.id - b.id), [rounds]);
+
+  return (
+    <div style={{ background: C.parchment, minHeight: "100vh", color: C.ink, fontFamily: "system-ui, -apple-system, sans-serif" }}>
+      <Header /><Tabs tab={tab} setTab={setTab} />
+      {saveError && <div className="mx-auto px-4 pt-3" style={{ maxWidth: 820 }}><div className="rounded-lg px-3 py-2 text-sm" style={{ background: "#FBE6E0", color: C.over }}>Couldn't save your last change — try again.</div></div>}
+      <main className="mx-auto px-4 pb-20 pt-4" style={{ maxWidth: 820 }}>
+        {loading ? <p className="py-12 text-center" style={{ color: C.muted }}>Loading the scorecard…</p>
+          : tab === "play" ? <Play pars={pars} rounds={sorted} stakes={stakes} draft={draft} onDraftChange={setDraft} onAdd={(r) => save(K_ROUNDS, [...rounds, r], setRounds)} />
+          : tab === "rounds" ? <Rounds rounds={sorted} pars={pars} stakes={stakes} onUpdate={(id, r) => save(K_ROUNDS, rounds.map((x) => (x.id === id ? { ...r, id } : x)), setRounds)} onDelete={(id) => save(K_ROUNDS, rounds.filter((x) => x.id !== id), setRounds)} />
+          : tab === "stats" ? <Stats rounds={sorted} pars={pars} />
+          : tab === "trip" ? <Trip rounds={sorted} pars={pars} stakes={stakes} setStakes={(v) => save(K_STAKES, v, setStakes)} onClear={() => save(K_ROUNDS, [], setRounds)} />
+          : tab === "schedule" ? <Schedule />
+          : tab === "history" ? <History />
+          : <Courses pars={pars} setPars={(v) => save(K_PARS, v, setPars)} />}
+      </main>
+    </div>
+  );
+}
+
+/* ============ header / tabs ============ */
+function Header() {
+  return (
+    <header style={{ background: C.pine, color: C.parchment }}>
+      <div className="mx-auto px-4 py-5" style={{ maxWidth: 820 }}>
+        <p className="text-xs" style={{ color: C.gold, letterSpacing: "0.25em" }}>OZARKS GOLF TRIP</p>
+        <h1 className="mt-1" style={{ fontFamily: serif, fontSize: 30, fontWeight: 700, lineHeight: 1.05 }}>Big Cedar Lodge</h1>
+        <div className="mt-3 flex flex-wrap gap-2">
+          {PLAYERS.map((p) => (
+            <span key={p.name} className="rounded-full px-3 py-1 text-xs font-semibold" style={{ background: "rgba(243,238,227,0.12)", border: `1px solid ${p.color}`, color: C.parchment }}>
+              <span style={{ display: "inline-block", width: 8, height: 8, borderRadius: 99, background: p.color, marginRight: 6 }} />{p.name}
+            </span>
+          ))}
+        </div>
+      </div>
+    </header>
+  );
+}
+function Tabs({ tab, setTab }) {
+  const items = [["play", "Play"], ["rounds", "Rounds"], ["trip", "Leaderboard"], ["stats", "Stats"], ["schedule", "Schedule"], ["courses", "Courses"], ["history", "History"]];
+  return (
+    <nav style={{ background: C.card, borderBottom: `1px solid ${C.line}`, position: "sticky", top: 0, zIndex: 5 }}>
+      <div className="mx-auto px-4 py-3" style={{ maxWidth: 820 }}>
+        <div style={{ position: "relative", maxWidth: 240 }}>
+          <select value={tab} onChange={(e) => setTab(e.target.value)} className="w-full appearance-none rounded-lg pl-3 pr-9 py-2 font-semibold" style={{ background: "#fff", border: `1px solid ${C.line}`, color: C.pine, fontFamily: serif, fontSize: 15 }}>
+            {items.map(([id, label]) => <option key={id} value={id}>{label}</option>)}
+          </select>
+          <span style={{ position: "absolute", right: 12, top: "50%", transform: "translateY(-50%)", pointerEvents: "none", color: C.muted, fontSize: 12 }}>▾</span>
+        </div>
+      </div>
+    </nav>
+  );
+}
+
+/* ============ scorecard (shared) ============ */
+function Mark({ v, par, size = 22 }) {
+  const d = v - par;
+  const s = size;
+  const ring = { position: "absolute", top: "50%", left: "50%", transform: "translate(-50%,-50%)", pointerEvents: "none", boxSizing: "border-box" };
+  const col = d < 0 ? C.fairway : d > 0 ? C.over : C.ink;
+  let shape = null;
+  if (d <= -2) shape = <span style={{ ...ring, width: s, height: s, borderRadius: "50%", border: `1.5px solid ${C.fairway}`, boxShadow: `0 0 0 1.5px ${C.card}, 0 0 0 3px ${C.fairway}` }} />;
+  else if (d === -1) shape = <span style={{ ...ring, width: s, height: s, borderRadius: "50%", border: `1.5px solid ${C.fairway}` }} />;
+  else if (d === 1) shape = <span style={{ ...ring, width: s, height: s, borderRadius: 3, border: `1.5px solid ${C.over}` }} />;
+  else if (d === 2) shape = <span style={{ ...ring, width: s, height: s, borderRadius: 3, border: `1.5px solid ${C.over}`, boxShadow: `0 0 0 1.5px ${C.card}, 0 0 0 3px ${C.over}` }} />;
+  else if (d >= 3) shape = <svg width={s + 5} height={s + 5} viewBox="0 0 27 27" style={ring}><polygon points="13.5,2.5 25,24 2,24" fill="none" stroke={C.over} strokeWidth="1.6" strokeLinejoin="round" /></svg>;
+  return <span style={{ position: "relative", display: "inline-flex", alignItems: "center", justifyContent: "center", width: s + 7, height: s + 7, fontFamily: serif, fontWeight: 700, color: col }}>{shape}<span style={{ position: "relative", zIndex: 1 }}>{v}</span></span>;
+}
+function Scorecard({ holePars, hs, setCell, subtotal, editable, readScores, courseId }) {
+  const scoring = scoringHoles(courseId);
+  const has18 = scoring >= 18;
+  const cell = { width: 34, textAlign: "center" };
+  const getV = (name, i) => (hs ? hs[name][i] : readScores[name]?.[i]);
+  const tableRef = useRef(null);
+  const advance = (el) => { const ins = tableRef.current ? [...tableRef.current.querySelectorAll("input")] : []; const idx = ins.indexOf(el); if (idx >= 0 && idx < ins.length - 1) { const n = ins[idx + 1]; n.focus(); try { n.select(); } catch (e) {} } };
+
+  const rowEl = (i, par, bonus) => (
+    <tr key={i} style={{ borderTop: `1px solid ${C.line}`, background: bonus ? "rgba(201,162,75,0.14)" : "transparent" }}>
+      <td className="px-1 py-1 text-xs font-semibold" style={{ color: bonus ? C.gold : C.muted }}>{i + 1}{bonus ? " ★" : ""}</td>
+      <td className="px-1 py-1 text-center text-xs" style={{ color: par === 3 ? C.fairway : C.muted, fontWeight: par === 3 ? 700 : 400 }}>{par}</td>
+      {PLAYERS.map((p) => {
+        const v = getV(p.name, i); const tp = isNum(v) ? Number(v) - par : null;
+        return (
+          <td key={p.name} className="px-0.5 py-1 text-center">
+            {editable
+              ? (() => {
+                  const pr = PRIOR[courseId] && PRIOR[courseId][p.name] ? PRIOR[courseId][p.name][i] : null;
+                  return (
+                    <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 1 }}>
+                      <input inputMode="numeric" value={v} onChange={(e) => { const raw = e.target.value; setCell(p.name, i, raw); const nv = raw.replace(/[^0-9]/g, ""); if (nv.length >= 2 || (nv.length === 1 && Number(nv) >= 2)) advance(e.target); }} placeholder="·" style={{ ...cell, border: `1px solid ${C.line}`, borderRadius: 6, padding: "4px 0", fontSize: 15, color: tp != null ? parColor(tp) : C.ink, background: "#fff" }} />
+                      <span style={{ fontSize: 9, lineHeight: 1, color: pr != null && pr - par < 0 ? C.fairway : C.muted, opacity: pr != null ? 0.55 : 0 }}>{pr != null ? pr : "0"}</span>
+                    </div>
+                  );
+                })()
+              : (isNum(v) ? <Mark v={Number(v)} par={par} /> : <span style={{ color: C.muted }}>·</span>)}
+          </td>
+        );
+      })}
+    </tr>
+  );
+  const subRowEl = (from, to, label) => (
+    <tr key={label} style={{ background: "rgba(46,94,58,0.06)" }}>
+      <td className="px-1 py-1 text-xs font-bold">{label}</td>
+      <td className="px-1 py-1 text-center text-xs font-bold">{sumRange(holePars, from, to)}</td>
+      {PLAYERS.map((p) => <td key={p.name} className="px-0.5 py-1 text-center text-xs font-bold">{subtotal(p.name, from, to) || ""}</td>)}
+    </tr>
+  );
+  const half = has18 ? 9 : scoring;
+  return (
+    <table ref={tableRef} style={{ borderCollapse: "collapse", width: "100%", minWidth: 300 }}>
+      <thead>
+        <tr style={{ background: C.pine, color: C.parchment }}>
+          <th className="px-1 py-1 text-left text-xs">Hole</th>
+          <th className="px-1 py-1 text-xs">Par</th>
+          {PLAYERS.map((p) => <th key={p.name} className="px-1 py-1 text-xs" style={{ color: "#fff" }}>{p.name}</th>)}
+        </tr>
+      </thead>
+      <tbody>
+        {holePars.slice(0, half).map((par, i) => rowEl(i, par))}
+        {subRowEl(0, half, has18 ? "OUT" : "TOT")}
+        {has18 && holePars.slice(9, 18).map((par, k) => rowEl(9 + k, par))}
+        {has18 && subRowEl(9, 18, "IN")}
+        {has18 && (
+          <tr style={{ background: C.pine, color: C.parchment }}>
+            <td className="px-1 py-1 text-xs font-bold">TOT</td>
+            <td className="px-1 py-1 text-center text-xs font-bold">{sumRange(holePars, 0, 18)}</td>
+            {PLAYERS.map((p) => <td key={p.name} className="px-0.5 py-1 text-center text-xs font-bold">{subtotal(p.name, 0, scoring) || ""}</td>)}
+          </tr>
+        )}
+        {holePars.length > scoring && holePars.slice(scoring).map((par, k) => rowEl(scoring + k, par, true))}
+      </tbody>
+    </table>
+  );
+}
+
+/* ============ PLAY ============ */
+function RoundEditor({ pars, stakes, draft, onDraftChange, initial, onSave, onCancel }) {
+  const startId = initial ? initial.courseId : COURSES[0].id;
+  const defaultDate = (id) => courseById(id).teeTime?.date || today();
+  const norm = (d) => { if (!d) return { current: null, courses: {} }; if (d.courses) return d; if (d.courseId) return { current: d.courseId, courses: { [d.courseId]: { date: d.date, hs: d.hs, greenies: d.greenies } } }; return { current: null, courses: {} }; };
+  const D = norm(draft);
+  const initCourse = (!initial && D.current && courseById(D.current)) ? D.current : startId;
+  const [courseId, setCourseId] = useState(initCourse);
+  const [date, setDate] = useState(() => { if (initial) return initial.date; const e = D.courses[initCourse]; return e && e.date ? e.date : defaultDate(initCourse); });
+  const course = courseById(courseId);
+  const holePars = getPars(courseId, pars);
+  const sc = scoringHoles(courseId);
+  const stk = stakes || DEFAULT_STAKES;
+
+  const blank = (id) => { const o = {}; PLAYERS.forEach((p) => (o[p.name] = Array(getPars(id, pars).length).fill(""))); return o; };
+  const fromRound = (id) => { const len = getPars(id, pars).length; const o = {}; PLAYERS.forEach((p) => { o[p.name] = Array(len).fill("").map((_, i) => { const v = initial?.holeScores?.[p.name]?.[i]; return isNum(v) ? String(v) : ""; }); }); return o; };
+  const [hs, setHs] = useState(() => { if (initial) return fromRound(startId); const e = D.courses[initCourse]; return e && e.hs ? e.hs : blank(initCourse); });
+  const [greenies, setGreenies] = useState(() => { if (initial) return initial.greenies ? { ...initial.greenies } : {}; const e = D.courses[initCourse]; return e && e.greenies ? e.greenies : {}; });
+  const mounted = useRef(false);
+  useEffect(() => { if (!mounted.current) { mounted.current = true; return; } if (initial) { setHs(blank(courseId)); setGreenies({}); setDate(defaultDate(courseId)); return; } const nd = norm(draft); const e = nd.courses[courseId]; setHs(e && e.hs ? e.hs : blank(courseId)); setGreenies(e && e.greenies ? e.greenies : {}); setDate(e && e.date ? e.date : defaultDate(courseId)); /* eslint-disable-next-line */ }, [courseId]);
+  useEffect(() => { if (initial || !onDraftChange) return; onDraftChange((prev) => { const base = norm(prev); return { current: courseId, courses: { ...base.courses, [courseId]: { date, hs, greenies } } }; }); /* eslint-disable-next-line */ }, [date, hs, greenies]);
+
+  const setCell = (name, i, v) => setHs((s) => { const c = { ...s, [name]: [...s[name]] }; c[name][i] = v.replace(/[^0-9]/g, ""); return c; });
+  const subtotal = (name, from, to) => { let s = 0; for (let i = from; i < to; i++) if (isNum(hs[name][i])) s += Number(hs[name][i]); return s; };
+  const anyScore = PLAYERS.some((p) => hs[p.name].some((x) => x !== ""));
+  const total = (name) => subtotal(name, 0, sc);
+  const toPar = (name) => { let st = 0, pr = 0, any = false; for (let i = 0; i < sc; i++) if (isNum(hs[name][i])) { st += Number(hs[name][i]); pr += holePars[i]; any = true; } return any ? st - pr : null; };
+
+  const save = () => {
+    if (!anyScore) return;
+    const holeScores = {}; PLAYERS.forEach((p) => (holeScores[p.name] = hs[p.name].map((x) => (x === "" ? null : Number(x)))));
+    const g = {}; Object.keys(greenies).forEach((k) => { if (greenies[k]) g[k] = greenies[k]; });
+    onSave({ id: initial ? initial.id : Date.now(), courseId, date, holeScores, greenies: g });
+    if (!initial) { setHs(blank(courseId)); setGreenies({}); if (onDraftChange) onDraftChange((prev) => { const base = norm(prev); const courses = { ...base.courses }; delete courses[courseId]; return { current: null, courses }; }); }
+  };
+
+  const greenieHoles = holePars.map((par, i) => ({ i, par })).filter(({ i, par }) => isTigerHole(courseId, i) || (par === 3 && i < sc));
+
+  return (
+    <div>
+      <h2 style={{ fontFamily: serif, fontSize: 20, fontWeight: 700 }}>{initial ? "Edit round" : "Log a round"}</h2>
+      <div className="mt-3 grid grid-cols-1 gap-3">
+        <div>
+          <label className="block text-xs font-semibold" style={{ color: C.muted }}>COURSE</label>
+          <select value={courseId} onChange={(e) => setCourseId(e.target.value)} className="mt-1 w-full rounded-lg px-3 py-2 text-sm" style={{ border: `1px solid ${C.line}`, background: "#fff" }}>
+            {COURSES.map((c) => <option key={c.id} value={c.id}>{c.name} — par {displayPar(c.id, pars)} ({scoringHoles(c.id)}{c.id === "paynes" ? "+1" : ""})</option>)}
+          </select>
+          {!initial && <p className="mt-1 text-xs" style={{ color: C.muted }}>Scores save per course — switching courses won't erase your entries.</p>}
+        </div>
+        <div>
+          <label className="block text-xs font-semibold" style={{ color: C.muted }}>DATE</label>
+          <input type="date" value={date} onChange={(e) => setDate(e.target.value)} className="mt-1 w-full rounded-lg px-3 py-2 text-sm" style={{ border: `1px solid ${C.line}`, background: "#fff" }} />
+        </div>
+      </div>
+
+      {course.teeTime && (
+        <div className="mt-3 rounded-lg px-3 py-2 text-xs" style={{ background: "rgba(201,162,75,0.12)", color: C.ink }}>
+          Tee time · <b>{fmtDate(course.teeTime.date)}</b> at <b>{course.teeTime.time}</b>{course.teeTime.conf ? ` · Conf ${course.teeTime.conf}` : ""}
+        </div>
+      )}
+      {course.matchPlay && (
+        <div className="mt-3 rounded-lg px-3 py-2 text-xs" style={{ background: "rgba(46,94,58,0.08)", color: C.ink }}>
+          2v2 best-ball match · <b>{course.matchPlay.teamA.join(" & ")}</b> vs <b>{course.matchPlay.teamB.join(" & ")}</b> · ${course.matchPlay.stake}/player
+        </div>
+      )}
+      {!course.tiebreaker && (
+        <div className="mt-2 rounded-lg px-3 py-2 text-xs" style={{ background: "rgba(201,162,75,0.12)", color: C.ink }}>
+          Games in play · Skins ${stk.skin}/hole · Nassau {sc >= 18 ? `$${stk.nassauFront}/${stk.nassauBack}/${stk.nassauTotal}` : `$${stk.nassauTotal}`}{course.championship ? ` · Greenies $${stk.greenie}` : ""}{course.id === "paynes" ? ` (+$${stk.tiger} Tiger)` : ""}{course.id === "twin" ? ` · Doug Adams Tax $${stk.dat}/over-par` : ""}
+        </div>
+      )}
+
+      <div className="mt-4 overflow-x-auto"><Scorecard holePars={holePars} hs={hs} setCell={setCell} subtotal={subtotal} editable courseId={courseId} /></div>
+      {PRIOR[courseId] && <p className="mt-1 text-xs" style={{ color: C.muted }}>Faded numbers under each box = that player's score here on the {PRIOR_YEAR} trip.</p>}
+
+      <div className="mt-2 grid grid-cols-4 gap-2">
+        {PLAYERS.map((p) => {
+          const tp = toPar(p.name);
+          return (
+            <div key={p.name} className="rounded-lg py-2 text-center" style={{ border: `1px solid ${C.line}` }}>
+              <div className="text-xs font-semibold" style={{ color: p.color }}>{p.name}</div>
+              <div style={{ fontFamily: serif, fontSize: 20, fontWeight: 700 }}>{total(p.name) || "—"}</div>
+              {tp != null && <div className="text-xs font-bold" style={{ color: parColor(tp) }}>{toParStr(tp)}</div>}
+            </div>
+          );
+        })}
+      </div>
+
+      {course.championship && greenieHoles.length > 0 && (
+        <div className="mt-4">
+          <p className="text-xs font-semibold" style={{ color: C.muted }}>GREENIES — closest to pin on the par 3s</p>
+          <div className="mt-2 flex flex-col gap-2">
+            {greenieHoles.map(({ i }) => {
+              const tiger = isTigerHole(courseId, i);
+              return (
+                <div key={i} className="rounded-lg p-2" style={{ border: `1px solid ${tiger ? C.gold : C.line}`, background: tiger ? "rgba(201,162,75,0.1)" : "transparent" }}>
+                  <div className="mb-1 text-xs font-semibold" style={{ color: tiger ? C.gold : C.ink }}>{tiger ? "★ Tiger Greenie · Hole 19" : `Hole ${i + 1}`}</div>
+                  <div className="flex flex-wrap gap-1.5">
+                    {PLAYERS.map((p) => {
+                      const seld = greenies[i] === p.name;
+                      return <button key={p.name} onClick={() => setGreenies((g) => ({ ...g, [i]: seld ? null : p.name }))} className="rounded-full px-3 py-1 text-xs font-semibold" style={{ background: seld ? p.color : "transparent", color: seld ? "#fff" : p.color, border: `1px solid ${p.color}` }}>{p.name}</button>;
+                    })}
+                    <button onClick={() => setGreenies((g) => ({ ...g, [i]: null }))} className="rounded-full px-3 py-1 text-xs" style={{ color: C.muted, border: `1px solid ${C.line}` }}>none</button>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
+      <div className="mt-4 flex gap-2">
+        <button onClick={save} disabled={!anyScore} className="flex-1 rounded-lg py-3 text-sm font-bold" style={{ background: anyScore ? C.fairway : "#C7C2B5", color: "#fff" }}>{initial ? "Save changes" : "Save round"}</button>
+        {onCancel && <button onClick={onCancel} className="rounded-lg px-4 py-3 text-sm font-semibold" style={{ color: C.muted, border: `1px solid ${C.line}` }}>Cancel</button>}
+      </div>
+    </div>
+  );
+}
+
+function Play({ pars, rounds, stakes, draft, onDraftChange, onAdd }) {
+  return (
+    <div className="flex flex-col gap-5">
+      <I70Strip rounds={rounds} />
+      <section className="rounded-2xl p-4" style={{ background: C.card, border: `1px solid ${C.line}` }}>
+        <RoundEditor pars={pars} stakes={stakes} draft={draft} onDraftChange={onDraftChange} onSave={onAdd} />
+      </section>
+    </div>
+  );
+}
+
+function Rounds({ rounds, pars, stakes, onUpdate, onDelete }) {
+  return (
+    <div className="flex flex-col gap-3">
+      <h2 className="mb-1" style={{ fontFamily: serif, fontSize: 20, fontWeight: 700 }}>Rounds <span style={{ color: C.muted, fontWeight: 400 }}>({rounds.length})</span></h2>
+      {rounds.length === 0 ? <Empty text="No rounds yet. Head to Play to log your first round hole by hole." />
+        : <div className="flex flex-col gap-3">{[...rounds].reverse().map((r) => <RoundCard key={r.id} round={r} pars={pars} stakes={stakes} onUpdate={onUpdate} onDelete={onDelete} />)}</div>}
+    </div>
+  );
+}
+
+function RoundCard({ round, pars, stakes, onUpdate, onDelete }) {
+  const [open, setOpen] = useState(false);
+  const [editing, setEditing] = useState(false);
+  const course = courseById(round.courseId);
+  const holePars = getPars(round.courseId, pars);
+  const sc = scoringHoles(round.courseId);
+  const winner = roundWinner(round);
+  const subtotal = (name, from, to) => { let s = 0; for (let i = from; i < to; i++) { const v = round.holeScores?.[name]?.[i]; if (isNum(v)) s += Number(v); } return s; };
+  const net = round.holeScores ? roundNet(round, pars, stakes) : null;
+  const skins = computeSkins(round, pars, stakes.skin);
+  const nassau = computeNassau(round, pars, stakes);
+  const greenies = computeGreenies(round, pars, stakes);
+
+  if (editing) {
+    return (
+      <div className="rounded-2xl p-4" style={{ background: C.card, border: `1px solid ${C.gold}` }}>
+        <RoundEditor pars={pars} stakes={stakes} initial={round} onSave={(r) => { onUpdate(round.id, r); setEditing(false); }} onCancel={() => setEditing(false)} />
+      </div>
+    );
+  }
+
+  return (
+    <div className="rounded-2xl p-4" style={{ background: C.card, border: `1px solid ${C.line}` }}>
+      <div className="flex items-start justify-between">
+        <div>
+          <p style={{ fontFamily: serif, fontSize: 17, fontWeight: 700 }}>{course.name}{course.tiebreaker ? " ★" : ""}</p>
+          <p className="text-xs" style={{ color: C.muted }}>{fmtDate(round.date)} · par {displayPar(round.courseId, pars)}{course.tiebreaker ? " · tiebreaker" : ""}</p>
+        </div>
+        <div className="flex gap-3">
+          <button onClick={() => setEditing(true)} className="text-xs font-semibold" style={{ color: C.fairway }}>Edit</button>
+          <button onClick={() => onDelete(round.id)} className="text-xs font-semibold" style={{ color: C.over }}>Delete</button>
+        </div>
+      </div>
+
+      <div className="mt-3 grid grid-cols-4 gap-2">
+        {PLAYERS.map((p) => {
+          const t = roundTotal(round, p.name); const tp = roundToPar(round, p.name, pars); const win = winner === p.name;
+          const n = net ? net[p.name].total : 0;
+          return (
+            <div key={p.name} className="rounded-lg py-2 text-center" style={{ background: win ? "rgba(201,162,75,0.16)" : "transparent", border: `1px solid ${win ? C.gold : C.line}` }}>
+              <div className="text-xs font-semibold" style={{ color: p.color }}>{p.name}{win ? " 🏆" : ""}</div>
+              <div style={{ fontFamily: serif, fontSize: 20, fontWeight: 700 }}>{t ?? "—"}</div>
+              {tp != null && <div className="text-xs font-bold" style={{ color: parColor(tp) }}>{toParStr(tp)}</div>}
+              {net && n !== 0 && <div className="text-xs font-semibold" style={{ color: netColor(n) }}>{money(n)}</div>}
+            </div>
+          );
+        })}
+      </div>
+
+      {round.holeScores && <button onClick={() => setOpen((o) => !o)} className="mt-3 text-xs font-semibold" style={{ color: C.fairway }}>{open ? "Hide details ▲" : (course.tiebreaker ? "Scorecard ▼" : "Scorecard, skins, Nassau & greenies ▼")}</button>}
+
+      {open && round.holeScores && (
+        <div className="mt-3 flex flex-col gap-4">
+          <div className="overflow-x-auto"><Scorecard holePars={holePars} readScores={round.holeScores} subtotal={subtotal} courseId={round.courseId} /></div>
+          {course.tiebreaker ? (
+            <Quiet text="Tiebreaker round — overall score only. The lowest total sweeps any tied bets, settled on the Leaderboard tab." />
+          ) : (
+            <>
+              {course.matchPlay && (
+                <Detail title="2v2 Best-Ball Match" right={`$${course.matchPlay.stake}/player`}>
+                  {(() => {
+                    const m = computeMatch(round, pars);
+                    if (!m) return <Quiet text="Enter scores to see the match result." />;
+                    const aName = course.matchPlay.teamA.join("/"); const bName = course.matchPlay.teamB.join("/");
+                    const result = m.winner === "A" ? `${aName} win · ${m.margin} up` : m.winner === "B" ? `${bName} win · ${-m.margin} up` : "Match halved — push";
+                    return (
+                      <div className="flex flex-col gap-1 text-sm">
+                        <div className="flex items-center justify-between"><span className="font-semibold" style={{ color: colorOf(course.matchPlay.teamA[0]) }}>{aName}</span><span className="font-bold">{m.holesA} holes</span></div>
+                        <div className="flex items-center justify-between"><span className="font-semibold" style={{ color: colorOf(course.matchPlay.teamB[0]) }}>{bName}</span><span className="font-bold">{m.holesB} holes</span></div>
+                        <div className="mt-1 font-semibold" style={{ color: m.winner ? C.fairway : C.muted }}>{result}{m.halved ? ` (${m.halved} halved)` : ""}</div>
+                      </div>
+                    );
+                  })()}
+                </Detail>
+              )}
+              {!course.matchOnly && (<>
+              <Detail title="Skins" right={`$${stakes.skin}/hole`}>
+                {skins.winners.length === 0 ? <Quiet text="No skins won — every hole pushed." /> : (
+                  <div className="flex flex-wrap gap-1.5">
+                    {skins.winners.map((w, idx) => <span key={idx} className="rounded-full px-2 py-1 text-xs" style={{ border: `1px solid ${C.line}` }}><b style={{ color: colorOf(w.name) }}>{w.name}</b> · H{w.hole} · {money(w.value)}</span>)}
+                    {skins.carry > 0 && <span className="rounded-full px-2 py-1 text-xs" style={{ color: C.muted, border: `1px dashed ${C.line}` }}>{money(skins.carry)} carries to tiebreaker</span>}
+                  </div>
+                )}
+              </Detail>
+              <Detail title="Nassau" right={sc >= 18 ? `$${stakes.nassauFront}/${stakes.nassauBack}/${stakes.nassauTotal}` : `$${stakes.nassauTotal}`}>
+                <div className="flex flex-col gap-1">
+                  {nassau.map((s, idx) => <div key={idx} className="flex items-center justify-between text-sm"><span style={{ color: C.muted }}>{s.label}</span><span className="font-semibold" style={{ color: s.winner ? colorOf(s.winner) : C.muted }}>{s.winner ? `${s.winner} · ${money(s.stake)}` : "push → tiebreaker"}</span></div>)}
+                </div>
+              </Detail>
+              {greenies && (
+                <Detail title="Greenies" right={`$${stakes.greenie} · Tiger $${stakes.tiger}`}>
+                  <div className="flex flex-col gap-1">
+                    {greenies.res.map((g) => <div key={g.idx} className="flex items-center justify-between text-sm"><span style={{ color: g.tiger ? C.gold : C.muted }}>{g.tiger ? "★ Tiger (H19)" : `Hole ${g.hole}`}</span><span className="font-semibold" style={{ color: g.name ? colorOf(g.name) : C.muted }}>{g.name || "→ tiebreaker"}</span></div>)}
+                  </div>
+                </Detail>
+              )}
+              {course.id === "twin" && (
+                <Detail title="Doug Adams Tax" right={`$${stakes.dat}/over-par hole`}>
+                  <div className="flex flex-col gap-1">
+                    {PLAYERS.map((p) => {
+                      const arr = round.holeScores?.[p.name] || [];
+                      let n = 0; for (let i = 0; i < sc; i++) { const s = arr[i]; if (isNum(s) && Number(s) > holePars[i]) n++; }
+                      return <div key={p.name} className="flex items-center justify-between text-sm"><span style={{ color: colorOf(p.name) }}>{p.name}</span><span className="font-semibold">{n} over par · {money(n * (stakes.dat || 1))}</span></div>;
+                    })}
+                    <div className="text-xs" style={{ color: C.muted }}>Pooled into the Top of the Rock tiebreaker.</div>
+                  </div>
+                </Detail>
+              )}
+              </>)}
+            </>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+const Detail = ({ title, right, children }) => (
+  <div className="rounded-xl p-3" style={{ background: "#fff", border: `1px solid ${C.line}` }}>
+    <div className="mb-2 flex items-baseline justify-between"><h4 className="text-sm font-bold">{title}</h4><span className="text-xs" style={{ color: C.muted }}>{right}</span></div>{children}
+  </div>
+);
+const Quiet = ({ text }) => <p className="text-xs" style={{ color: C.muted }}>{text}</p>;
+
+/* ============ COURSES ============ */
+const EVENTS = [
+  { date: "2026-09-03", time: "4:00 PM", kind: "Lodging", title: "Big Cedar Lodge check-in", sub: "Valley View Double Queen · 2 rooms", conf: "2T5PKV73W · 2SZ7Q5R6R" },
+  { date: "2026-09-03", time: "7:30 PM", kind: "Dinner", title: "Osage at Top of the Rock", sub: "4 guests · Main Dining · 417-339-5320", conf: "6FFUNW3L6RE2" },
+  { date: "2026-09-04", time: "8:00 PM", endTime: "10:00 PM", kind: "Event", title: "Glow With The Flow Pool Party", sub: "Poolside" },
+  { date: "2026-09-05", time: "7:15 PM", kind: "Dinner", title: "Osage at Top of the Rock", sub: "4 guests · Main Dining · 417-339-5320", conf: "6FFUTB3AH3NR" },
+  { date: "2026-09-06", time: "11:00 AM", kind: "Lodging", title: "Big Cedar Lodge check-out", sub: "Departure" },
+];
+const SUN = {
+  "2026-09-02": { hi: 86, lo: 64, rise: "6:49 AM", set: "7:44 PM" },
+  "2026-09-03": { hi: 86, lo: 63, rise: "6:46 AM", set: "7:37 PM" },
+  "2026-09-04": { hi: 86, lo: 63, rise: "6:46 AM", set: "7:36 PM" },
+  "2026-09-05": { hi: 85, lo: 63, rise: "6:47 AM", set: "7:34 PM" },
+  "2026-09-06": { hi: 85, lo: 62, rise: "6:48 AM", set: "7:33 PM" },
+};
+async function nwsForecast(lat, lon) {
+  const out = {};
+  try {
+    const pt = await fetch(`https://api.weather.gov/points/${lat},${lon}`).then((r) => r.json());
+    const url = pt && pt.properties && pt.properties.forecast;
+    if (!url) return out;
+    const fc = await fetch(url).then((r) => r.json());
+    const periods = (fc && fc.properties && fc.properties.periods) || [];
+    periods.forEach((p) => {
+      const date = (p.startTime || "").slice(0, 10);
+      if (!date) return;
+      if (!out[date]) out[date] = {};
+      if (p.isDaytime) { out[date].hi = p.temperature; out[date].short = p.shortForecast; }
+      else if (out[date].lo == null) { out[date].lo = p.temperature; }
+    });
+  } catch (e) {}
+  return out;
+}
+function Schedule() {
+  const [wx, setWx] = useState({});
+  useEffect(() => {
+    let live = true;
+    (async () => {
+      const rid = await nwsForecast(36.5469, -93.2530);
+      const jop = await nwsForecast(37.0842, -94.5133);
+      if (!live) return;
+      const merged = { ...rid };
+      if (jop["2026-09-02"]) merged["2026-09-02"] = jop["2026-09-02"];
+      setWx(merged);
+    })();
+    return () => { live = false; };
+  }, []);
+  const parseTime = (tt) => { const m = /(\d+):(\d+)\s*(AM|PM)/i.exec(tt || ""); if (!m) return 0; let h = (+m[1]) % 12; if (/pm/i.test(m[3])) h += 12; return h * 60 + (+m[2]); };
+  const golf = COURSES.filter((c) => c.teeTime).map((c) => ({ kind: "Golf", title: c.name, date: c.teeTime.date, time: c.teeTime.time, conf: c.teeTime.conf, holes: getPars(c.id).length }));
+  const items = [...golf, ...EVENTS].map((i) => ({ ...i, mins: parseTime(i.time) }))
+    .sort((a, b) => a.date.localeCompare(b.date) || a.mins - b.mins);
+  if (!items.length) return <Empty text="Nothing scheduled yet." />;
+  const days = [...new Set(items.map((i) => i.date))].sort();
+  const tone = { Golf: C.fairway, Dinner: C.gold, Lodging: C.pine, Event: C.gold };
+  return (
+    <div className="flex flex-col gap-4">
+      <p className="text-sm" style={{ color: C.muted }}>Trip itinerary — tee times, dining, lodging, and events, in order.</p>
+      {days.map((d) => {
+        const dayItems = items.filter((i) => i.date === d);
+        const rounds = dayItems.filter((i) => i.kind === "Golf").length;
+        const holes = dayItems.reduce((a, i) => a + (i.holes || 0), 0);
+        const parts = [];
+        if (rounds) parts.push(`${rounds} round${rounds > 1 ? "s" : ""} · ${holes} holes`);
+        return (
+        <section key={d} className="rounded-2xl p-4" style={{ background: C.card, border: `1px solid ${C.line}` }}>
+          <h2 style={{ fontFamily: serif, fontSize: 18, fontWeight: 700, color: C.pine }}>{fmtDate(d)}</h2>
+          {parts.length > 0 && <p className="text-xs font-semibold" style={{ color: C.gold }}>{parts.join("  ·  ")}</p>}
+          {(() => {
+            const w = wx[d];
+            if (w && w.hi != null) return <p className="text-xs font-semibold" style={{ color: C.fairway }}>Forecast {w.hi}°{w.lo != null ? ` / ${w.lo}°` : ""}{w.short ? ` · ${w.short}` : ""}</p>;
+            return SUN[d] ? <p className="text-xs" style={{ color: C.muted }}>Avg high {SUN[d].hi}° · low {SUN[d].lo}° <span style={{ opacity: 0.7 }}>(historical)</span></p> : null;
+          })()}
+          {SUN[d] && <p className="text-xs" style={{ color: C.muted }}>Sunrise {SUN[d].rise} · Sunset {SUN[d].set}</p>}
+          <div className="mt-2 flex flex-col gap-2">
+            {dayItems.map((i, idx) => (
+              <div key={idx} className="flex items-center justify-between rounded-lg px-3 py-2" style={{ border: `1px solid ${C.line}`, borderLeft: `3px solid ${tone[i.kind] || C.line}` }}>
+                <div>
+                  <div className="flex items-center gap-2">
+                    <span className="rounded-full px-2 py-0.5 font-bold uppercase" style={{ fontSize: 10, letterSpacing: "0.06em", color: tone[i.kind] || C.muted, border: `1px solid ${tone[i.kind] || C.line}` }}>{i.kind}</span>
+                    <span className="text-sm font-bold">{i.title}</span>
+                  </div>
+                  {i.sub && <div className="mt-1 text-xs" style={{ color: C.muted }}>{i.sub}</div>}
+                  {i.conf && <div className="text-xs" style={{ color: C.muted }}>Conf {i.conf}</div>}
+                </div>
+                <div className="text-sm font-semibold" style={{ color: C.fairway, whiteSpace: "nowrap" }}>{i.time}{i.endTime ? `–${i.endTime}` : ""}</div>
+              </div>
+            ))}
+          </div>
+        </section>
+        );
+      })}
+    </div>
+  );
+}
+
+const PRIOR_YEAR = 2023;
+// Last-trip scores, transcribed from the paper cards. Brian did not play. Verify against the cards.
+const PRIOR = {
+  ozarks: {
+    Jeff:   [7,4,3,4,4,4,6,4,6, 4,6,4,3,5,5,5,3,5],
+    Kevin:  [4,3,5,5,4,4,8,4,7, 6,6,4,5,6,6,5,3,6],
+    Carson: [7,3,4,6,3,5,5,5,5, 6,5,5,4,5,5,7,3,4],
+  },
+  buffalo: {
+    Jeff:   [7,3,5,5,6,7,5,5,5, 5,4,5,5,6,5,4,3,5],
+    Kevin:  [5,4,5,4,5,5,4,8,4, 6,3,5,5,6,5,4,4,3],
+    Carson: [6,4,5,3,4,5,3,8,4, 4,5,3,5,5,4,6,4,4],
+  },
+  paynes: {
+    Jeff:   [4,3,4,5,5,7,5,3,4, 3,5,4,6,4,5,4,6,5],
+    Kevin:  [5,5,5,7,4,5,4,6,4, 4,6,4,6,4,4,4,5,5],
+    Carson: [7,4,5,3,3,6,5,5,5, 4,5,3,6,3,5,3,5,6],
+  },
+  tor: {
+    Jeff:   [4,4,3,3,3,5,5,4,4],
+    Kevin:  [3,3,3,4,6,4,3,4,4],
+    Carson: [3,4,4,3,6,4,4,3,2],
+  },
+};
+function History() {
+  const rows = ["Jeff", "Kevin", "Carson"];
+  const list = [["ozarks", "Ozarks National"], ["buffalo", "Buffalo Ridge"], ["paynes", "Payne's Valley"], ["tor", "Top of the Rock"]];
+  const cell = { padding: "4px 7px", textAlign: "center", whiteSpace: "nowrap" };
+  return (
+    <div className="flex flex-col gap-4">
+      <p className="text-sm" style={{ color: C.muted }}>Scores from the {PRIOR_YEAR} trip — scouting reference. Brian didn't play these, so he's not shown.</p>
+      <div className="flex flex-wrap items-center gap-3 text-xs" style={{ color: C.muted }}>
+        <span className="inline-flex items-center gap-1"><Mark v={1} par={3} size={16} /> eagle+</span>
+        <span className="inline-flex items-center gap-1"><Mark v={2} par={3} size={16} /> birdie</span>
+        <span className="inline-flex items-center gap-1"><Mark v={4} par={3} size={16} /> bogey</span>
+        <span className="inline-flex items-center gap-1"><Mark v={5} par={3} size={16} /> double</span>
+        <span className="inline-flex items-center gap-1"><Mark v={6} par={3} size={16} /> triple+</span>
+      </div>
+      {list.map(([id, name]) => {
+        const data = PRIOR[id];
+        if (!data) return null;
+        const n = (data.Jeff || data.Carson || []).length;
+        const cp = getPars(id).slice(0, n);
+        const parTot = cp.reduce((a, b) => a + b, 0);
+        return (
+          <section key={id} className="rounded-2xl p-4" style={{ background: C.card, border: `1px solid ${C.line}` }}>
+            <h2 style={{ fontFamily: serif, fontSize: 18, fontWeight: 700, color: C.pine }}>{name}</h2>
+            <p className="text-xs" style={{ color: C.muted }}>Par {parTot} · {n} holes</p>
+            <div className="mt-2 overflow-x-auto">
+              <table className="text-xs" style={{ borderCollapse: "collapse" }}>
+                <thead>
+                  <tr style={{ color: C.muted }}>
+                    <th style={{ ...cell, textAlign: "left" }}>Hole</th>
+                    {cp.map((_, i) => <th key={i} style={cell}>{i + 1}</th>)}
+                    <th style={cell}>Tot</th>
+                    <th style={cell}>+/-</th>
+                  </tr>
+                  <tr style={{ color: C.muted }}>
+                    <td style={{ ...cell, textAlign: "left" }}>Par</td>
+                    {cp.map((p, i) => <td key={i} style={cell}>{p}</td>)}
+                    <td style={cell}>{parTot}</td>
+                    <td style={cell}></td>
+                  </tr>
+                </thead>
+                <tbody>
+                  {rows.map((nm) => {
+                    const sc = data[nm];
+                    if (!sc) return null;
+                    const tot = sc.reduce((a, b) => a + (+b || 0), 0);
+                    const diff = tot - parTot;
+                    return (
+                      <tr key={nm} style={{ borderTop: `1px solid ${C.line}` }}>
+                        <td style={{ ...cell, textAlign: "left", fontWeight: 700, color: colorOf(nm) }}>{nm}</td>
+                        {sc.map((v, i) => <td key={i} style={{ ...cell, padding: "2px 3px" }}><Mark v={v} par={cp[i]} size={16} /></td>)}
+                        <td style={{ ...cell, fontWeight: 700 }}>{tot}</td>
+                        <td style={{ ...cell, fontWeight: 700, color: diff < 0 ? C.fairway : diff > 0 ? C.over : C.ink }}>{diff > 0 ? `+${diff}` : diff}</td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+            {(() => {
+              const th = cp.map((par, i) => { const vals = rows.map((nm) => (data[nm] ? data[nm][i] : null)).filter((x) => x != null); const avgOver = vals.length ? vals.reduce((a, v) => a + (v - par), 0) / vals.length : 0; return { hole: i + 1, avgOver }; }).sort((a, b) => b.avgOver - a.avgOver).slice(0, 3);
+              return <p className="mt-2 text-xs font-semibold" style={{ color: C.over }}>Toughest for us: {th.map((h) => `#${h.hole} +${h.avgOver.toFixed(1)}`).join("  ·  ")}</p>;
+            })()}
+          </section>
+        );
+      })}
+    </div>
+  );
+}
+function Courses({ pars, setPars }) {
+  const [editId, setEditId] = useState(null);
+  const setHolePar = (id, i, val) => { const base = [...getPars(id, pars)]; base[i] = Math.max(3, Math.min(6, val)); setPars({ ...pars, [id]: base }); };
+  const resetCourse = (id) => { const next = { ...pars }; delete next[id]; setPars(next); };
+
+  return (
+    <div className="flex flex-col gap-3">
+      <p className="text-sm" style={{ color: C.muted }}>{COURSES.length} courses, {COURSES.reduce((a, c) => a + getPars(c.id).length, 0)} holes on the trip. Tap Edit pars to correct any hole against the printed card — greenie holes update automatically.</p>
+      {COURSES.map((c) => {
+        const hp = getPars(c.id, pars); const editing = editId === c.id; const sc = scoringHoles(c.id);
+        const par3s = hp.map((p, i) => (p === 3 && i < sc ? i + 1 : null)).filter(Boolean);
+        return (
+          <div key={c.id} className="rounded-2xl p-4" style={{ background: C.card, border: `1px solid ${C.line}` }}>
+            <div className="flex items-baseline justify-between">
+              <h3 style={{ fontFamily: serif, fontSize: 19, fontWeight: 700 }}>{c.name}</h3>
+              <span className="rounded-full px-2 py-1 text-xs font-semibold" style={{ background: "rgba(46,94,58,0.1)", color: C.fairway }}>{c.type}</span>
+            </div>
+            <p className="mt-1 text-sm">{c.designer}</p>
+            <div className="mt-2 flex gap-4 text-sm"><span><b>{sc}{c.id === "paynes" ? " + bonus 19th" : ""}</b> holes</span><span>par <b>{displayPar(c.id, pars)}</b></span></div>
+            {c.championship && <p className="mt-1 text-xs" style={{ color: C.fairway }}>Greenie holes (par 3): {par3s.join(", ")}{c.id === "paynes" ? " + 19th (★ Tiger Greenie)" : ""}</p>}
+            {c.note && <p className="mt-2 text-xs" style={{ color: C.muted }}>{c.note}</p>}
+            {c.teeTime && (
+              <div className="mt-2 rounded-lg px-3 py-2" style={{ background: "rgba(201,162,75,0.12)", border: `1px solid ${C.gold}` }}>
+                <div className="text-xs font-semibold" style={{ color: C.fairway }}>Tee time · {fmtDate(c.teeTime.date)} at {c.teeTime.time}</div>
+                {c.teeTime.conf && <div className="text-xs" style={{ color: C.muted }}>Confirmation {c.teeTime.conf}</div>}
+              </div>
+            )}
+            <div className="mt-3 flex gap-3">
+              <button onClick={() => setEditId(editing ? null : c.id)} className="text-xs font-semibold" style={{ color: C.fairway }}>{editing ? "Done" : "Edit pars"}</button>
+              {pars[c.id] && <button onClick={() => resetCourse(c.id)} className="text-xs font-semibold" style={{ color: C.muted }}>Reset to default</button>}
+            </div>
+            {editing && (
+              <div className="mt-3 overflow-x-auto">
+                <div className="flex gap-1" style={{ minWidth: hp.length * 40 }}>
+                  {hp.map((p, i) => (
+                    <div key={i} className="text-center">
+                      <div className="text-xs" style={{ color: isTigerHole(c.id, i) ? C.gold : C.muted }}>{i + 1}{isTigerHole(c.id, i) ? "★" : ""}</div>
+                      <select value={p} onChange={(e) => setHolePar(c.id, i, Number(e.target.value))} className="mt-1 rounded px-1 py-1 text-sm" style={{ border: `1px solid ${C.line}`, background: "#fff", color: p === 3 ? C.fairway : C.ink, fontWeight: p === 3 ? 700 : 400 }}>
+                        {[3, 4, 5, 6].map((n) => <option key={n} value={n}>{n}</option>)}
+                      </select>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+/* ============ STATS ============ */
+function Stats({ rounds, pars }) {
+  const d = useMemo(() => computeStats(rounds, pars), [rounds, pars]);
+  if (rounds.length === 0) return <Empty text="No data yet. Log a few rounds and the analytics fill in here." />;
+  const fmtAvg = (v) => toParStr(Math.round(v * 10) / 10);
+  const HEADERS = ["Eagle+", "Birdie", "Par", "Bogey", "Double", "Triple+"];
+  const rec = [
+    { label: "Toughest course", o: d.records.hardestCourse, fmt: (o) => o.name },
+    { label: "Easiest course", o: d.records.easiestCourse, fmt: (o) => o.name },
+    { label: "Toughest hole", o: d.records.hardestHole, fmt: (o) => o.label },
+    { label: "Easiest hole", o: d.records.easiestHole, fmt: (o) => o.label },
+  ];
+  return (
+    <div className="flex flex-col gap-6">
+      <section className="rounded-2xl p-4" style={{ background: C.card, border: `1px solid ${C.line}` }}>
+        <h2 style={{ fontFamily: serif, fontSize: 20, fontWeight: 700 }}>Scoring breakdown</h2>
+        <p className="text-xs" style={{ color: C.muted }}>Hole-by-hole results across every round. Gold marks the group leader in each column.</p>
+        <div className="mt-3 overflow-x-auto">
+          <table style={{ width: "100%", borderCollapse: "collapse", minWidth: 420 }}>
+            <thead><tr style={{ color: C.muted }}><th className="px-2 py-1 text-left text-xs">Player</th>{HEADERS.map((h) => <th key={h} className="px-2 py-1 text-left text-xs">{h}</th>)}</tr></thead>
+            <tbody>
+              {PLAYERS.map((p) => (
+                <tr key={p.name} style={{ borderTop: `1px solid ${C.line}` }}>
+                  <td className="px-2 py-2 text-sm font-bold" style={{ color: p.color }}>{p.name}</td>
+                  {d.CATS.map((k) => { const v = d.cats[p.name][k]; const lead = v > 0 && v === d.catMax[k]; return <td key={k} className="px-2 py-2 text-sm" style={{ fontWeight: lead ? 700 : 400, color: lead ? C.fairway : C.ink, background: lead ? "rgba(201,162,75,0.16)" : "transparent" }}>{v}</td>; })}
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      <section className="rounded-2xl p-4" style={{ background: C.card, border: `1px solid ${C.line}` }}>
+        <h2 style={{ fontFamily: serif, fontSize: 20, fontWeight: 700 }}>Group records</h2>
+        <p className="text-xs" style={{ color: C.muted }}>Championship courses only.</p>
+        <div className="mt-3 flex flex-col gap-2">
+          {rec.map(({ label, o, fmt }) => (
+            <div key={label} className="flex items-center justify-between rounded-lg px-3 py-2" style={{ border: `1px solid ${C.line}` }}>
+              <span className="text-sm" style={{ color: C.muted }}>{label}</span>
+              {o ? <span className="text-sm font-bold">{fmt(o)} <span style={{ color: parColor(Math.round(o.avg * 10) / 10) }}>({fmtAvg(o.avg)})</span></span> : <span className="text-sm" style={{ color: C.muted }}>—</span>}
+            </div>
+          ))}
+        </div>
+      </section>
+
+      <section className="rounded-2xl p-4" style={{ background: C.card, border: `1px solid ${C.line}` }}>
+        <h2 style={{ fontFamily: serif, fontSize: 20, fontWeight: 700 }}>Course leaders</h2>
+        <p className="text-xs" style={{ color: C.muted }}>Best average to par on each course played.</p>
+        <div className="mt-3 flex flex-col gap-2">
+          {d.leaders.map((row) => <div key={row.id} className="flex items-center justify-between rounded-lg px-3 py-2" style={{ border: `1px solid ${C.line}` }}><span className="text-sm">{row.name}</span><span className="text-sm font-bold" style={{ color: row.color }}>{row.leader} <span style={{ color: parColor(row.toPar) }}>({toParStr(Math.round(row.toPar * 10) / 10)})</span></span></div>)}
+        </div>
+      </section>
+    </div>
+  );
+}
+function computeStats(allRounds, pars) {
+  const rounds = allRounds.filter((r) => !courseById(r.courseId).tiebreaker);
+
+  const CATS = ["eagle", "birdie", "par", "bogey", "double", "triple"];
+  const cats = {}; PLAYERS.forEach((p) => (cats[p.name] = { eagle: 0, birdie: 0, par: 0, bogey: 0, double: 0, triple: 0 }));
+  rounds.forEach((r) => {
+    if (!r.holeScores) return;
+    const cp = getPars(r.courseId, pars); const sc = scoringHoles(r.courseId);
+    PLAYERS.forEach((p) => { const arr = r.holeScores[p.name]; if (!arr) return;
+      for (let i = 0; i < sc; i++) { const s = arr[i]; if (!isNum(s)) continue; const dd = Number(s) - cp[i];
+        if (dd <= -2) cats[p.name].eagle++; else if (dd === -1) cats[p.name].birdie++; else if (dd === 0) cats[p.name].par++; else if (dd === 1) cats[p.name].bogey++; else if (dd === 2) cats[p.name].double++; else cats[p.name].triple++; }
+    });
+  });
+  const catMax = {}; CATS.forEach((k) => (catMax[k] = Math.max(...PLAYERS.map((p) => cats[p.name][k]))));
+
+  const champ = rounds.filter((r) => courseById(r.courseId).championship && r.holeScores);
+  const courseStats = COURSES.filter((c) => c.championship).map((c) => {
+    const rs = champ.filter((r) => r.courseId === c.id); const tps = [];
+    rs.forEach((r) => PLAYERS.forEach((p) => { const tp = roundToPar(r, p.name, pars); if (tp != null) tps.push(tp); }));
+    return tps.length ? { name: c.name, avg: tps.reduce((a, b) => a + b, 0) / tps.length } : null;
+  }).filter(Boolean);
+  const hardestCourse = courseStats.slice().sort((a, b) => b.avg - a.avg)[0] || null;
+  const easiestCourse = courseStats.slice().sort((a, b) => a.avg - b.avg)[0] || null;
+
+  const holeAgg = {};
+  champ.forEach((r) => { const cp = getPars(r.courseId, pars); const sc = scoringHoles(r.courseId);
+    PLAYERS.forEach((p) => { const arr = r.holeScores[p.name]; if (!arr) return;
+      for (let i = 0; i < sc; i++) { const s = arr[i]; if (!isNum(s)) continue; const key = r.courseId + "#" + i;
+        if (!holeAgg[key]) holeAgg[key] = { sum: 0, count: 0, courseId: r.courseId, i }; holeAgg[key].sum += Number(s) - cp[i]; holeAgg[key].count++; }
+    });
+  });
+  const holes = Object.values(holeAgg).map((h) => ({ label: `${courseById(h.courseId).name.split(" ")[0]} #${h.i + 1}`, avg: h.sum / h.count }));
+  const hardestHole = holes.slice().sort((a, b) => b.avg - a.avg)[0] || null;
+  const easiestHole = holes.slice().sort((a, b) => a.avg - b.avg)[0] || null;
+
+  const leaders = COURSES.map((c) => { const rs = rounds.filter((r) => r.courseId === c.id); if (!rs.length) return null; let best = null; PLAYERS.forEach((p) => { const tps = rs.map((r) => roundToPar(r, p.name, pars)).filter((x) => x != null); if (tps.length) { const avg = tps.reduce((a, b) => a + b, 0) / tps.length; if (best === null || avg < best.toPar) best = { leader: p.name, color: p.color, toPar: avg }; } }); return best ? { id: c.id, name: c.name, ...best } : null; }).filter(Boolean);
+
+  return { leaders, cats, catMax, CATS, records: { hardestCourse, easiestCourse, hardestHole, easiestHole } };
+}
+
+function scoringLeaderboard(allRounds, pars) {
+  const rounds = allRounds.filter((r) => !courseById(r.courseId).tiebreaker);
+  const t = {}; PLAYERS.forEach((p) => (t[p.name] = { toPars: [], wins: 0 }));
+  rounds.forEach((r) => { const w = roundWinner(r); PLAYERS.forEach((p) => { const tp = roundToPar(r, p.name, pars); if (tp != null) t[p.name].toPars.push(tp); }); if (w) t[w].wins += 1; });
+  return PLAYERS.map((p) => { const a = t[p.name].toPars; const n = a.length; const total = a.reduce((x, y) => x + y, 0); return { name: p.name, color: p.color, rounds: n, wins: t[p.name].wins, total, _s: n ? total : Infinity }; }).sort((a, b) => a._s - b._s);
+}
+
+/* ============ TRIP ============ */
+function Trip({ rounds, pars, stakes, setStakes, onClear }) {
+  const hb = rounds.filter((r) => r.holeScores);
+  const board = useMemo(() => scoringLeaderboard(hb, pars), [hb, pars]);
+  const tally = useMemo(() => seasonMoney(hb, pars, stakes), [hb, pars, stakes]);
+  const cup = useMemo(() => i70Cup(hb), [hb]);
+  const cupStake = Number(stakes.i70 ?? 20);
+  const fullTally = useMemo(() => {
+    const win = cup.net > 0 ? I70.KC : cup.net < 0 ? I70.STL : null;
+    const lose = cup.net > 0 ? I70.STL : cup.net < 0 ? I70.KC : null;
+    const cm = {}; PLAYERS.forEach((p) => (cm[p.name] = 0));
+    if (win) { win.players.forEach((n) => (cm[n] = cupStake)); lose.players.forEach((n) => (cm[n] = -cupStake)); }
+    const out = {}; PLAYERS.forEach((p) => { const tt = tally[p.name]; out[p.name] = { ...tt, i70: cm[p.name], total: tt.total + cm[p.name] }; });
+    return out;
+  }, [tally, cup, cupStake]);
+  const tx = useMemo(() => settleUp(fullTally), [fullTally]);
+  const champ = useMemo(() => tripChampion(rounds, pars, fullTally), [rounds, pars, fullTally]);
+  const tbs = useMemo(() => tiebreakResults(hb), [hb]);
+  const tax = useMemo(() => dougAdamsTax(hb, pars, stakes.dat), [hb, pars, stakes.dat]);
+  const tied = useMemo(() => allTiedBets(hb, pars, stakes), [hb, pars, stakes]);
+  const tiedTotal = tied.reduce((a, b) => a + b.value * b.participants.length, 0);
+  const moneyRows = PLAYERS.map((p) => ({ name: p.name, color: p.color, ...fullTally[p.name] })).sort((a, b) => b.total - a.total);
+  const cupLead = cup.net > 0 ? I70.KC : cup.net < 0 ? I70.STL : null;
+  const cupTrail = cup.net > 0 ? I70.STL : cup.net < 0 ? I70.KC : null;
+  const cupStatus = cup.perRound.length === 0 ? "No rounds counted yet." : cup.net === 0 ? (cup.complete ? "All square — the Cup is halved." : "All square right now.") : cup.complete ? `${cupLead.label} win the I-70 Cup 🏆` : `${cupLead.label} lead by ${Math.abs(cup.net)}`;
+  const cupPayout = cup.perRound.length === 0 ? `${money(cupStake)} a player · ${money(cupStake * 4)} pot, winner-take-all.` : cup.net === 0 ? (cup.complete ? "Push — no money changes hands." : "Tied — pot still up for grabs.") : `${cup.complete ? "" : "If it ended now: "}${cupLead.label} +${money(cupStake)} each · ${cupTrail.label} ${money(-cupStake)} each`;
+
+  return (
+    <div className="flex flex-col gap-6">
+      <section className="rounded-2xl p-5" style={{ background: C.pine, color: C.parchment }}>
+        <p className="text-xs" style={{ color: C.gold, letterSpacing: "0.2em" }}>TRIP CHAMPION</p>
+        {!champ.overall ? <p className="mt-2 text-sm" style={{ color: "rgba(243,238,227,0.8)" }}>Log rounds to crown a champion.</p> : (
+          <>
+            <h2 className="mt-1" style={{ fontFamily: serif, fontSize: 34, fontWeight: 700 }}>{champ.overall.name} 👑</h2>
+            <p className="text-sm" style={{ color: "rgba(243,238,227,0.85)" }}>{toParStr(Math.round(champ.overall.avg * 10) / 10)} scoring average · {champ.overall.rounds} rounds</p>
+            <div className="mt-4 grid grid-cols-2 gap-2">
+              <Award label="Money leader" value={champ.money ? `${champ.money.name} · ${money(champ.money.total)}` : "—"} />
+              <Award label="Match leader" value={champ.match && champ.match.match > 0 ? `${champ.match.name} · ${money(champ.match.match)}` : "—"} />
+              <Award label="Skins leader" value={champ.skins && champ.skins.skins > 0 ? `${champ.skins.name} · ${money(champ.skins.skins)}` : "—"} />
+              <Award label="Nassau leader" value={champ.nassau && champ.nassau.nassau > 0 ? `${champ.nassau.name} · ${money(champ.nassau.nassau)}` : "—"} />
+              <Award label="Greenie king" value={champ.greenie && champ.greenie.greenieCount > 0 ? `${champ.greenie.name} · ${champ.greenie.greenieCount}` : "—"} />
+              <Award label="Low round" value={champ.low ? `${champ.low.name} · ${toParStr(champ.low.tp)} (${champ.low.course})` : "—"} />
+            </div>
+          </>
+        )}
+      </section>
+
+      <section className="rounded-2xl p-4" style={{ background: C.card, border: `1px solid ${C.line}` }}>
+        <h2 style={{ fontFamily: serif, fontSize: 20, fontWeight: 700 }}>Leaderboard</h2>
+        <p className="text-xs" style={{ color: C.muted }}>Ranked by total score to par.</p>
+        <div className="mt-3 flex flex-col gap-2">
+          {board.map((row, i) => (
+            <div key={row.name} className="flex items-center gap-3 rounded-lg px-3 py-2" style={{ background: i === 0 ? "rgba(201,162,75,0.14)" : "transparent", border: `1px solid ${i === 0 ? C.gold : C.line}` }}>
+              <span style={{ fontFamily: serif, fontSize: 18, fontWeight: 700, width: 22, color: C.muted }}>{i + 1}</span>
+              <span style={{ display: "inline-block", width: 10, height: 10, borderRadius: 99, background: row.color }} />
+              <span className="flex-1 text-sm font-bold" style={{ color: row.color }}>{row.name}{i === 0 ? " 👑" : ""}</span>
+              <div className="text-right"><div className="text-sm font-bold" style={{ color: parColor(row.total) }}>{row.rounds ? toParStr(row.total) : "—"}</div><div className="text-xs" style={{ color: C.muted }}>{row.rounds} rnds · {row.wins} wins</div></div>
+            </div>
+          ))}
+        </div>
+      </section>
+
+      <section className="rounded-2xl p-5" style={{ background: C.card, border: `1px solid ${C.line}` }}>
+        <div className="flex items-center gap-3">
+          <I70Sign size={48} />
+          <div>
+            <p className="text-xs font-bold" style={{ color: C.gold, letterSpacing: "0.2em" }}>KANSAS CITY vs ST. LOUIS</p>
+            <h2 style={{ fontFamily: serif, fontSize: 30, fontWeight: 700, lineHeight: 1.02, color: C.pine }}>The I-70 Cup</h2>
+          </div>
+        </div>
+        <div className="mt-3 flex gap-3">
+          {[I70.KC, I70.STL].map((rg, idx) => {
+            const holes = idx === 0 ? cup.kc : cup.stl;
+            const leading = idx === 0 ? cup.net > 0 : cup.net < 0;
+            return (
+              <div key={rg.key} className="flex-1 rounded-xl p-3" style={{ background: leading ? `${rg.color}14` : "transparent", border: `1px solid ${leading ? rg.color : C.line}` }}>
+                <div className="flex items-center gap-2 flex-wrap">
+                  <span style={{ width: 12, height: 12, borderRadius: 3, background: rg.color, display: "inline-block" }} />
+                  <span style={{ fontFamily: serif, fontWeight: 700, color: rg.color }}>{rg.label}</span>
+                  {leading && <span className="text-xs font-bold" style={{ color: rg.color }}>{cup.complete ? "WINS 🏆" : "LEADS"}</span>}
+                </div>
+                <p className="text-xs mt-1" style={{ color: C.muted }}>{rg.players.join(" & ")}</p>
+                <p style={{ fontFamily: serif, fontSize: 32, fontWeight: 700, lineHeight: 1.1 }}>{holes}</p>
+                <p className="text-xs" style={{ color: C.muted }}>holes won</p>
+              </div>
+            );
+          })}
+        </div>
+        <p className="mt-3 text-sm font-semibold" style={{ color: C.ink }}>{cupStatus}</p>
+        <p className="text-xs" style={{ color: C.muted }}>{cupPayout}</p>
+        {cup.perRound.length > 0 && (
+          <details className="mt-2">
+            <summary className="text-xs" style={{ color: C.gold, cursor: "pointer" }}>Round-by-round</summary>
+            <div className="mt-2 flex flex-col gap-1">
+              {cup.perRound.map((pr) => (
+                <div key={pr.courseId} className="flex items-center justify-between text-xs">
+                  <span style={{ color: C.muted }}>{pr.name}</span>
+                  <span><span style={{ color: I70.KC.color, fontWeight: 700 }}>{pr.kc}</span> <span style={{ color: C.muted }}>–</span> <span style={{ color: I70.STL.color, fontWeight: 700 }}>{pr.stl}</span>{pr.halved ? <span style={{ color: C.muted }}> · {pr.halved} halved</span> : null}</span>
+                </div>
+              ))}
+            </div>
+          </details>
+        )}
+      </section>
+
+      <section className="rounded-2xl p-4" style={{ background: C.card, border: `1px solid ${C.line}` }}>
+        <h2 style={{ fontFamily: serif, fontSize: 20, fontWeight: 700 }}>Money board</h2>
+        <p className="text-xs" style={{ color: C.muted }}>Net across {hb.length} scored round{hb.length === 1 ? "" : "s"}, including the I-70 Cup (live regional standing). Each game = every player antes the stake, the winner takes the pot.</p>
+        <div className="mt-3 overflow-x-auto">
+          <table style={{ width: "100%", borderCollapse: "collapse", minWidth: 620 }}>
+            <thead><tr style={{ color: C.muted }}>{["Player", "Skins", "Nassau", "Greenies", "Match", "Tiebreak", "I-70 Cup", "Net"].map((h) => <th key={h} className="px-2 py-1 text-left text-xs">{h}</th>)}</tr></thead>
+            <tbody>
+              {moneyRows.map((r, i) => (
+                <tr key={r.name} style={{ borderTop: `1px solid ${C.line}`, background: i === 0 && r.total > 0 ? "rgba(201,162,75,0.12)" : "transparent" }}>
+                  <td className="px-2 py-2 text-sm font-bold" style={{ color: r.color }}>{r.name}</td>
+                  <td className="px-2 py-2 text-sm" style={{ color: netColor(r.skins) }}>{money(r.skins)}</td>
+                  <td className="px-2 py-2 text-sm" style={{ color: netColor(r.nassau) }}>{money(r.nassau)}</td>
+                  <td className="px-2 py-2 text-sm" style={{ color: netColor(r.greenies) }}>{money(r.greenies)} <span style={{ color: C.muted }}>({r.greenieCount})</span></td>
+                  <td className="px-2 py-2 text-sm" style={{ color: netColor(r.match) }}>{money(r.match)}</td>
+                  <td className="px-2 py-2 text-sm" style={{ color: netColor(r.tiebreak) }}>{money(r.tiebreak)}</td>
+                  <td className="px-2 py-2 text-sm" style={{ color: netColor(r.i70) }}>{money(r.i70)}</td>
+                  <td className="px-2 py-2 text-sm font-bold" style={{ color: netColor(r.total) }}>{money(r.total)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      <section className="rounded-2xl p-4" style={{ background: C.card, border: `1px solid ${C.line}` }}>
+        <h2 style={{ fontFamily: serif, fontSize: 20, fontWeight: 700 }}>Settle up</h2>
+        <p className="text-xs" style={{ color: C.muted }}>The fewest payments to square everyone.</p>
+        <div className="mt-3 flex flex-col gap-2">
+          {tx.length === 0 ? <Quiet text="All square — nobody owes anyone." /> : tx.map((t, i) => (
+            <div key={i} className="flex items-center justify-between rounded-lg px-3 py-2" style={{ border: `1px solid ${C.line}` }}>
+              <span className="text-sm"><b style={{ color: colorOf(t.from) }}>{t.from}</b> <span style={{ color: C.muted }}>pays</span> <b style={{ color: colorOf(t.to) }}>{t.to}</b></span>
+              <span className="text-sm font-bold" style={{ color: C.fairway }}>{money(t.amt)}</span>
+            </div>
+          ))}
+        </div>
+      </section>
+
+      <section className="rounded-2xl p-4" style={{ background: C.card, border: `1px solid ${C.line}` }}>
+        <h2 style={{ fontFamily: serif, fontSize: 20, fontWeight: 700 }}>Tiebreakers</h2>
+        <p className="text-xs" style={{ color: C.muted }}>Two putting tiebreakers settle pushed bets. Top of the Rock sweeps everything pushed up to it; Tom Watson sweeps everything pushed after.</p>
+        <div className="mt-3 flex flex-col gap-4">
+          {tbs.map((tb) => {
+            const order = PLAYERS.map((p) => ({ name: p.name, t: tb.totals[p.name] })).filter((x) => x.t != null).sort((a, b) => a.t - b.t);
+            const mine = tied.filter((b) => b.settledBy === tb.courseId);
+            const pot = mine.reduce((a, b) => a + b.value * b.participants.length, 0);
+            const won = mine.reduce((a, b) => a + b.value * (b.participants.length - 1), 0);
+            const isFirst = tbs[0] && tb.courseId === tbs[0].courseId;
+            const taxPool = isFirst ? tax.pool : 0;
+            const fullPot = pot + taxPool;
+            const fullWon = won + (isFirst && tb.winner ? tax.pool - tax.by[tb.winner] : 0);
+            return (
+              <div key={tb.courseId} className="rounded-xl p-3" style={{ border: `1px solid ${C.line}` }}>
+                <div className="flex items-center justify-between">
+                  <p style={{ fontFamily: serif, fontWeight: 700 }}>{tb.name} ★</p>
+                  {tb.played && !tb.tie && tb.winner && <span className="text-xs font-bold" style={{ color: colorOf(tb.winner) }}>{tb.winner} 👑</span>}
+                </div>
+                {tb.played && order.length > 0 && (
+                  <div className="mt-2 grid grid-cols-4 gap-2">
+                    {order.map((r, i) => (
+                      <div key={r.name} className="rounded-lg py-2 text-center" style={{ background: i === 0 && !tb.tie ? "rgba(201,162,75,0.16)" : "transparent", border: `1px solid ${i === 0 && !tb.tie ? C.gold : C.line}` }}>
+                        <div className="text-xs font-semibold" style={{ color: colorOf(r.name) }}>{r.name}</div>
+                        <div style={{ fontFamily: serif, fontSize: 20, fontWeight: 700 }}>{r.t}</div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+                <div className="mt-2 rounded-lg px-3 py-2 text-sm" style={{ background: tb.winner ? "rgba(46,94,58,0.08)" : "rgba(201,162,75,0.1)", color: C.ink }}>
+                  {(mine.length === 0 && taxPool === 0)
+                    ? "No pushed bets assigned here yet."
+                    : tb.winner
+                      ? <span><b style={{ color: colorOf(tb.winner) }}>{tb.winner}</b> won and swept {money(fullWon)}{taxPool > 0 ? " (pushes + Doug Adams Tax)" : ""}.</span>
+                      : tb.tie
+                        ? `Putting is tied — ${money(fullPot)} stays unsettled until someone wins outright.`
+                        : <span><b>{money(fullPot)}</b> waiting on this course — lowest total sweeps it.</span>}
+                </div>
+                {mine.length > 0 && (
+                  <div className="mt-2 flex flex-col gap-1">
+                    {mine.map((b, i) => (
+                      <div key={i} className="flex items-center justify-between text-xs">
+                        <span style={{ color: C.muted }}>{b.label}</span>
+                        <span className="font-semibold">{money(b.value * b.participants.length)} pot</span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+                {isFirst && taxPool > 0 && (
+                  <div className="mt-2">
+                    <div className="flex items-center justify-between text-xs font-semibold"><span>Doug Adams Tax · Twin Hills over-par</span><span>{money(taxPool)} pot</span></div>
+                    <div className="mt-1 flex flex-col gap-0.5">
+                      {PLAYERS.filter((p) => tax.by[p.name] > 0).map((p) => (
+                        <div key={p.name} className="flex items-center justify-between text-xs">
+                          <span style={{ color: colorOf(p.name) }}>{p.name}</span>
+                          <span style={{ color: C.muted }}>{tax.by[p.name] / (stakes.dat || 1)} over par · {money(tax.by[p.name])}</span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </div>
+            );
+          })}
+          {tied.length === 0 && <p className="text-xs" style={{ color: C.muted }}>No pushed bets yet — nothing waiting on either tiebreaker.</p>}
+        </div>
+      </section>
+
+      <section className="rounded-2xl p-4" style={{ background: C.card, border: `1px solid ${C.line}` }}>
+        <h2 style={{ fontFamily: serif, fontSize: 20, fontWeight: 700 }}>Stakes</h2>
+        <div className="mt-3 grid grid-cols-2 gap-3">
+          {[["skin", "Skin / hole"], ["nassauFront", "Nassau front"], ["nassauBack", "Nassau back"], ["nassauTotal", "Nassau total"], ["greenie", "Greenie each"], ["tiger", "★ Tiger Greenie"], ["i70", "I-70 Cup / player"], ["dat", "Doug Adams Tax / hole"]].map(([k, label]) => (
+            <div key={k}>
+              <label className="block text-xs font-semibold" style={{ color: C.muted }}>{label}</label>
+              <div className="mt-1 flex items-center rounded-lg px-2" style={{ border: `1px solid ${C.line}`, background: "#fff" }}>
+                <span style={{ color: C.muted }}>$</span>
+                <input inputMode="decimal" value={stakes[k]} onChange={(e) => { const v = e.target.value.replace(/[^0-9.]/g, ""); setStakes({ ...stakes, [k]: v === "" ? 0 : Number(v) }); }} className="w-full px-1 py-2 text-sm" style={{ border: "none", outline: "none", background: "transparent" }} />
+              </div>
+            </div>
+          ))}
+        </div>
+      </section>
+
+      <button onClick={() => { if (window.confirm("Erase all logged rounds? This can't be undone.")) onClear(); }} className="self-center rounded-lg px-4 py-2 text-xs font-semibold" style={{ color: C.over, border: `1px solid ${C.line}`, background: C.card }}>Reset all rounds</button>
+    </div>
+  );
+}
+const Award = ({ label, value }) => (
+  <div className="rounded-xl px-3 py-2" style={{ background: "rgba(243,238,227,0.1)", border: "1px solid rgba(201,162,75,0.4)" }}>
+    <div className="text-xs" style={{ color: C.gold }}>{label}</div><div className="text-sm font-semibold" style={{ color: C.parchment }}>{value}</div>
+  </div>
+);
+function tripChampion(allRounds, pars, tally) {
+  const rounds = allRounds.filter((r) => !courseById(r.courseId).tiebreaker);
+  const t = {}; PLAYERS.forEach((p) => (t[p.name] = []));
+  rounds.forEach((r) => PLAYERS.forEach((p) => { const tp = roundToPar(r, p.name, pars); if (tp != null) t[p.name].push(tp); }));
+  const avgs = PLAYERS.map((p) => ({ name: p.name, rounds: t[p.name].length, avg: t[p.name].length ? t[p.name].reduce((x, y) => x + y, 0) / t[p.name].length : Infinity })).filter((x) => x.rounds > 0);
+  const overall = avgs.length ? avgs.sort((a, b) => a.avg - b.avg)[0] : null;
+  const arr = PLAYERS.map((p) => ({ name: p.name, ...tally[p.name] }));
+  const moneyL = arr.slice().sort((a, b) => b.total - a.total)[0];
+  const skinsL = arr.slice().sort((a, b) => b.skins - a.skins)[0];
+  const greenieL = arr.slice().sort((a, b) => b.greenieCount - a.greenieCount)[0];
+  const matchL = arr.slice().sort((a, b) => b.match - a.match)[0];
+  const nassauL = arr.slice().sort((a, b) => b.nassau - a.nassau)[0];
+  let low = null;
+  rounds.forEach((r) => PLAYERS.forEach((p) => { const tp = roundToPar(r, p.name, pars); if (tp != null && (low === null || tp < low.tp)) low = { name: p.name, tp, course: courseById(r.courseId).name.split(" ")[0] }; }));
+  return { overall, money: moneyL && moneyL.total > 0 ? moneyL : null, skins: skinsL, greenie: greenieL, match: matchL, nassau: nassauL, low };
+}
+
+/* ============ misc ============ */
+function Empty({ text }) { return <div className="rounded-2xl px-4 py-10 text-center" style={{ background: C.card, border: `1px dashed ${C.line}`, color: C.muted }}><p className="text-sm">{text}</p></div>; }

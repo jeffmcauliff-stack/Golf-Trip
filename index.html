@@ -103,7 +103,7 @@
   })();
 </script>
 
-<script type="text/babel" data-presets="react">
+<script type="text/plain" id="app-source">
 const { useState, useEffect, useMemo, useRef } = React;
 
 
@@ -1699,5 +1699,15 @@ function Empty({ text }) { return <div className="rounded-2xl px-4 py-10 text-ce
 const _root = ReactDOM.createRoot(document.getElementById("root"));
 _root.render(<App />);
 </script>
+  <script>
+    (function(){
+      var src = document.getElementById('app-source').textContent;
+      var out = Babel.transform(src, { presets: [["react", { runtime: "classic" }]] });
+      var s = document.createElement('script');
+      s.text = out.code;
+      document.body.appendChild(s);
+    })();
+  </script>
+  </script>
 </body>
 </html>

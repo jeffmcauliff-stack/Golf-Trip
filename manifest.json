@@ -1,0 +1,13 @@
+{
+  "name": "Big Cedar Shootout",
+  "short_name": "Shootout",
+  "description": "Big Cedar Lodge golf trip scoring, betting, and analytics.",
+  "start_url": "./index.html",
+  "display": "standalone",
+  "background_color": "#1B3A2F",
+  "theme_color": "#1B3A2F",
+  "icons": [
+    { "src": "./icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any maskable" },
+    { "src": "./icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any maskable" }
+  ]
+}

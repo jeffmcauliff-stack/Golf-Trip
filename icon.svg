@@ -1,0 +1,52 @@
+<svg width="1024" height="1024" viewBox="0 0 1024 1024" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="sky" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#1B3A2F"/>
+      <stop offset="0.55" stop-color="#244a39"/>
+      <stop offset="1" stop-color="#2E5E3A"/>
+    </linearGradient>
+    <radialGradient id="glow" cx="0.5" cy="0.32" r="0.65">
+      <stop offset="0" stop-color="#3a6b4c" stop-opacity="0.55"/>
+      <stop offset="1" stop-color="#1B3A2F" stop-opacity="0"/>
+    </radialGradient>
+    <linearGradient id="green" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#3f7a4f"/>
+      <stop offset="1" stop-color="#2c5a39"/>
+    </linearGradient>
+    <linearGradient id="flag" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#D8B25A"/>
+      <stop offset="1" stop-color="#B07A3C"/>
+    </linearGradient>
+  </defs>
+
+  <rect width="1024" height="1024" fill="url(#sky)"/>
+  <rect width="1024" height="1024" fill="url(#glow)"/>
+
+  <ellipse cx="512" cy="880" rx="620" ry="240" fill="url(#green)"/>
+  <ellipse cx="512" cy="838" rx="470" ry="150" fill="#47855a" opacity="0.5"/>
+
+  <g fill="#19352a">
+    <g transform="translate(168,548)">
+      <polygon points="0,150 60,150 30,70"/>
+      <polygon points="-12,110 72,110 30,30"/>
+      <polygon points="-22,72 82,72 30,-6"/>
+      <rect x="22" y="150" width="16" height="44"/>
+    </g>
+    <g transform="translate(792,560)">
+      <polygon points="0,150 60,150 30,70"/>
+      <polygon points="-12,110 72,110 30,30"/>
+      <polygon points="-22,72 82,72 30,-6"/>
+      <rect x="22" y="150" width="16" height="44"/>
+    </g>
+  </g>
+
+  <ellipse cx="556" cy="772" rx="44" ry="15" fill="#13241b"/>
+  <rect x="550" y="300" width="12" height="478" rx="6" fill="#F3EEE3"/>
+  <path d="M556 300 L740 352 L556 404 Z" fill="url(#flag)"/>
+  <path d="M556 300 L740 352 L556 404 Z" fill="none" stroke="#8a5d2c" stroke-width="4" stroke-linejoin="round"/>
+  <circle cx="432" cy="760" r="26" fill="#F3EEE3"/>
+  <circle cx="432" cy="760" r="26" fill="none" stroke="#cdbf9a" stroke-width="3"/>
+
+  <rect x="64" y="64" width="896" height="896" rx="210" fill="none" stroke="#C9A24B" stroke-width="20" opacity="0.92"/>
+  <rect x="92" y="92" width="840" height="840" rx="188" fill="none" stroke="#C9A24B" stroke-width="4" opacity="0.5"/>
+</svg>

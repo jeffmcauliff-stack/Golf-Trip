@@ -60,9 +60,9 @@
       };
       auth.onAuthStateChanged((u) => {
         window.BC_AUTH.isAdmin = !!(u && !u.isAnonymous && u.uid === ADMIN_UID);
-        window.dispatchEvent(new Event("bc-admin"));
+        window.dispatchEvent(new Event("bc-admin")); if (!u) { auth.signInAnonymously().catch(function () {}); }
       });
-      auth.signInAnonymously().catch(function () {});   // viewers connect anonymously (read-only via rules)
+      // viewers connect anonymously (read-only via rules)
       let ref = null;
       async function ensure() {
         if (ref) return ref;

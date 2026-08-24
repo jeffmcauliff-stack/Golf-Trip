@@ -36,13 +36,13 @@
      (localStorage) and automatically upgrades to shared sync after.
      ============================================================ */
   const FIREBASE_CONFIG = {
-    apiKey: "AIzaSyBD074i_4ers4U6x5p1FTh_qs3iAnZUQTA",
-    authDomain: "golf-trip-f1432.firebaseapp.com",
-    projectId: "golf-trip-f1432",
-    appId: "1:652805211026:web:c904a2e180bccb9072f74b"
+    apiKey: "PASTE_API_KEY",
+    authDomain: "PASTE_PROJECT.firebaseapp.com",
+    projectId: "PASTE_PROJECT_ID",
+    appId: "PASTE_APP_ID"
   };
   const TRIP_ID = "big-cedar-2026";   // same value on everyone's device
-  const ADMIN_UID = "b3q8p2CbCudEL0ceKnYmxPlVxM92";   // your Firebase Auth UID — the ONLY account allowed to edit
+  const ADMIN_UID = "PASTE_ADMIN_UID";   // your Firebase Auth UID — the ONLY account allowed to edit
   /* ============================================================ */
 
   const FIELD = { bigcedar_rounds: "rounds", bigcedar_pars: "pars", bigcedar_stakes: "stakes" };
@@ -60,9 +60,9 @@
       };
       auth.onAuthStateChanged((u) => {
         window.BC_AUTH.isAdmin = !!(u && !u.isAnonymous && u.uid === ADMIN_UID);
-        window.dispatchEvent(new Event("bc-admin")); if (!u) { auth.signInAnonymously().catch(function () {}); }
+        window.dispatchEvent(new Event("bc-admin"));
       });
-      // viewers connect anonymously (read-only via rules)
+      auth.signInAnonymously().catch(function () {});   // viewers connect anonymously (read-only via rules)
       let ref = null;
       async function ensure() {
         if (ref) return ref;
@@ -103,7 +103,7 @@
   })();
 </script>
 
-<script type="text/plain" id="app-source">
+<script type="text/babel" data-presets="react">
 const { useState, useEffect, useMemo, useRef } = React;
 
 
@@ -186,6 +186,7 @@ const COURSES = [
 const courseById = (id) => COURSES.find((c) => c.id === id);
 
 const DEFAULT_STAKES = { skin: 2, nassauFront: 10, nassauBack: 10, nassauTotal: 10, greenie: 5, tiger: 15, i70: 35, dat: 1 };
+function upsertRound(arr, r) { const i = (arr || []).findIndex((x) => x.id === r.id); if (i >= 0) { const c = arr.slice(); c[i] = r; return c; } return [...(arr || []), r]; }
 const K_ROUNDS = "bigcedar_rounds", K_PARS = "bigcedar_pars", K_STAKES = "bigcedar_stakes", K_DRAFT = "bigcedar_draft";
 
 /* ============ helpers ============ */
@@ -499,15 +500,16 @@ function App() {
   useEffect(() => { if (loading) return; const t = setTimeout(() => { try { if (draft) window.storage.set(K_DRAFT, JSON.stringify(draft)); else window.storage.delete(K_DRAFT); } catch (e) {} }, 400); return () => clearTimeout(t); }, [draft, loading]);
 
   const sorted = useMemo(() => [...rounds].sort((a, b) => a.date.localeCompare(b.date) || a.id - b.id), [rounds]);
-  const showTab = !isAdmin && tab === "play" ? "rounds" : tab;
+  const showTab = tab;
 
   return (
     <div style={{ background: C.parchment, minHeight: "100vh", color: C.ink, fontFamily: "system-ui, -apple-system, sans-serif" }}>
       <Header /><Tabs tab={showTab} setTab={setTab} isAdmin={isAdmin} />
+      <InstallHint />
       {saveError && <div className="mx-auto px-4 pt-3" style={{ maxWidth: 820 }}><div className="rounded-lg px-3 py-2 text-sm" style={{ background: "#FBE6E0", color: C.over }}>Couldn't save your last change — try again.</div></div>}
       <main className="mx-auto px-4 pb-20 pt-4" style={{ maxWidth: 820 }}>
         {loading ? <p className="py-12 text-center" style={{ color: C.muted }}>Loading the scorecard…</p>
-          : showTab === "play" ? <Play pars={pars} rounds={sorted} stakes={stakes} draft={draft} onDraftChange={setDraft} onAdd={(r) => save(K_ROUNDS, [...rounds, r], setRounds)} />
+          : showTab === "play" ? <Play pars={pars} rounds={sorted} stakes={stakes} isAdmin={isAdmin} onLive={(r) => save(K_ROUNDS, upsertRound(rounds, r), setRounds)} />
           : showTab === "rounds" ? <Rounds rounds={sorted} pars={pars} stakes={stakes} isAdmin={isAdmin} onUpdate={(id, r) => save(K_ROUNDS, rounds.map((x) => (x.id === id ? { ...r, id } : x)), setRounds)} onDelete={(id) => save(K_ROUNDS, rounds.filter((x) => x.id !== id), setRounds)} />
           : showTab === "stats" ? <Stats rounds={sorted} pars={pars} />
           : showTab === "trip" ? <Trip rounds={sorted} pars={pars} stakes={stakes} isAdmin={isAdmin} setStakes={(v) => save(K_STAKES, v, setStakes)} onClear={() => save(K_ROUNDS, [], setRounds)} />
@@ -521,10 +523,41 @@ function App() {
 }
 
 /* ============ header / tabs ============ */
+function InstallHint() {
+  const [show, setShow] = useState(false);
+  const [plat, setPlat] = useState("ios");
+  useEffect(() => {
+    const standalone = (window.matchMedia && window.matchMedia("(display-mode: standalone)").matches) || window.navigator.standalone === true;
+    if (standalone) return;
+    const ua = navigator.userAgent || "";
+    const p = /iPhone|iPad|iPod/i.test(ua) ? "ios" : (/Android/i.test(ua) ? "android" : "other");
+    if (p === "other") return;
+    setPlat(p);
+    (async () => { try { const d = await window.storage.get("bigcedar_hideinstall"); if (d && d.value === "1") return; } catch (e) {} setShow(true); })();
+  }, []);
+  if (!show) return null;
+  const dismiss = () => { setShow(false); try { window.storage.set("bigcedar_hideinstall", "1"); } catch (e) {} };
+  const steps = plat === "ios"
+    ? <>In Safari, tap <b>Share</b> <span style={{ opacity: 0.7 }}>(box with an up-arrow)</span>, then <b>Add to Home Screen</b>.</>
+    : <>In Chrome, tap the <b>⋮</b> menu, then <b>Add to Home screen</b>.</>;
+  return (
+    <div className="mx-auto px-4 pt-3" style={{ maxWidth: 820 }}>
+      <div className="flex items-start gap-3 rounded-lg px-3 py-2" style={{ background: "rgba(201,162,75,0.14)", border: `1px solid ${C.gold}` }}>
+        <span style={{ fontSize: 18, lineHeight: 1.2 }}>📲</span>
+        <div className="flex-1 text-xs">
+          <div className="font-bold" style={{ color: C.pine }}>Add to your Home Screen</div>
+          <div className="mt-0.5" style={{ color: C.muted }}>{steps} It opens full-screen like an app and keeps updating live.</div>
+        </div>
+        <button onClick={dismiss} aria-label="Dismiss" className="font-bold" style={{ color: C.muted, fontSize: 18, lineHeight: 1 }}>×</button>
+      </div>
+    </div>
+  );
+}
+
 function Header() {
   return (
     <header style={{ background: C.pine, color: C.parchment }}>
-      <div className="mx-auto px-4 py-5" style={{ maxWidth: 820 }}>
+      <div className="mx-auto px-4" style={{ maxWidth: 820, paddingTop: "calc(env(safe-area-inset-top) + 18px)", paddingBottom: 20 }}>
         <p className="text-xs" style={{ color: C.gold, letterSpacing: "0.25em" }}>OZARKS GOLF TRIP</p>
         <h1 className="mt-1" style={{ fontFamily: serif, fontSize: 30, fontWeight: 700, lineHeight: 1.05 }}>Big Cedar Lodge</h1>
         <div className="mt-3 flex flex-wrap gap-2">
@@ -540,7 +573,7 @@ function Header() {
 }
 function Tabs({ tab, setTab, isAdmin }) {
   const base = [["play", "Play"], ["rounds", "Rounds"], ["trip", "Leaderboard"], ["stats", "Stats"], ["schedule", "Schedule"], ["courses", "Courses"], ["history", "History"], ["stakes", "Stakes"]];
-  const items = isAdmin ? base : base.filter(([id]) => id !== "play");
+  const items = base;
   const auth = typeof window !== "undefined" ? window.BC_AUTH : null;
   return (
     <nav style={{ background: C.card, borderBottom: `1px solid ${C.line}`, position: "sticky", top: 0, zIndex: 5 }}>
@@ -737,26 +770,25 @@ function Scorecard({ holePars, hs, setCell, subtotal, editable, readScores, cour
 }
 
 /* ============ PLAY ============ */
-function RoundEditor({ pars, stakes, draft, onDraftChange, initial, onSave, onCancel }) {
+function RoundEditor({ pars, stakes, rounds, onLive, initial, onSave, onCancel }) {
   const startId = initial ? initial.courseId : COURSES[0].id;
   const defaultDate = (id) => courseById(id).teeTime?.date || today();
-  const norm = (d) => { if (!d) return { current: null, courses: {} }; if (d.courses) return d; if (d.courseId) return { current: d.courseId, courses: { [d.courseId]: { date: d.date, hs: d.hs, greenies: d.greenies } } }; return { current: null, courses: {} }; };
-  const D = norm(draft);
-  const initCourse = (!initial && D.current && courseById(D.current)) ? D.current : startId;
-  const [courseId, setCourseId] = useState(initCourse);
-  const [date, setDate] = useState(() => { if (initial) return initial.date; const e = D.courses[initCourse]; return e && e.date ? e.date : defaultDate(initCourse); });
+  const existingFor = (id) => (rounds || []).find((r) => r.courseId === id);
+  const fromRound = (r, id) => { const len = getPars(id, pars).length; const o = {}; PLAYERS.forEach((p) => { o[p.name] = Array(len).fill("").map((_, i) => { const v = r?.holeScores?.[p.name]?.[i]; return isNum(v) ? String(v) : ""; }); }); return o; };
+  const blank = (id) => { const o = {}; PLAYERS.forEach((p) => (o[p.name] = Array(getPars(id, pars).length).fill(""))); return o; };
+  const seed0 = initial ? null : existingFor(startId);
+  const [courseId, setCourseId] = useState(startId);
+  const [date, setDate] = useState(() => (initial ? initial.date : (seed0 ? seed0.date : defaultDate(startId))));
   const course = courseById(courseId);
   const holePars = getPars(courseId, pars);
   const sc = scoringHoles(courseId);
   const stk = stakes || DEFAULT_STAKES;
 
-  const blank = (id) => { const o = {}; PLAYERS.forEach((p) => (o[p.name] = Array(getPars(id, pars).length).fill(""))); return o; };
-  const fromRound = (id) => { const len = getPars(id, pars).length; const o = {}; PLAYERS.forEach((p) => { o[p.name] = Array(len).fill("").map((_, i) => { const v = initial?.holeScores?.[p.name]?.[i]; return isNum(v) ? String(v) : ""; }); }); return o; };
-  const [hs, setHs] = useState(() => { if (initial) return fromRound(startId); const e = D.courses[initCourse]; return e && e.hs ? e.hs : blank(initCourse); });
-  const [greenies, setGreenies] = useState(() => { if (initial) return initial.greenies ? { ...initial.greenies } : {}; const e = D.courses[initCourse]; return e && e.greenies ? e.greenies : {}; });
+  const [hs, setHs] = useState(() => (initial ? fromRound(initial, startId) : (seed0 ? fromRound(seed0, startId) : blank(startId))));
+  const [greenies, setGreenies] = useState(() => (initial ? (initial.greenies ? { ...initial.greenies } : {}) : (seed0 && seed0.greenies ? { ...seed0.greenies } : {})));
   const mounted = useRef(false);
-  useEffect(() => { if (!mounted.current) { mounted.current = true; return; } if (initial) { setHs(blank(courseId)); setGreenies({}); setDate(defaultDate(courseId)); return; } const nd = norm(draft); const e = nd.courses[courseId]; setHs(e && e.hs ? e.hs : blank(courseId)); setGreenies(e && e.greenies ? e.greenies : {}); setDate(e && e.date ? e.date : defaultDate(courseId)); /* eslint-disable-next-line */ }, [courseId]);
-  useEffect(() => { if (initial || !onDraftChange) return; onDraftChange((prev) => { const base = norm(prev); return { current: courseId, courses: { ...base.courses, [courseId]: { date, hs, greenies } } }; }); /* eslint-disable-next-line */ }, [date, hs, greenies]);
+  useEffect(() => { if (!mounted.current) { mounted.current = true; return; } if (initial) { setHs(blank(courseId)); setGreenies({}); setDate(defaultDate(courseId)); return; } const e = existingFor(courseId); setHs(e ? fromRound(e, courseId) : blank(courseId)); setGreenies(e && e.greenies ? { ...e.greenies } : {}); setDate(e ? e.date : defaultDate(courseId)); /* eslint-disable-next-line */ }, [courseId]);
+  useEffect(() => { if (initial || !onLive) return; const hasScore = PLAYERS.some((p) => (hs[p.name] || []).some((x) => x !== "")); if (!hasScore) return; const holeScores = {}; PLAYERS.forEach((p) => (holeScores[p.name] = hs[p.name].map((x) => (x === "" ? null : Number(x))))); const g = {}; Object.keys(greenies).forEach((k) => { if (greenies[k]) g[k] = greenies[k]; }); const ex = existingFor(courseId); onLive({ id: ex ? ex.id : "r-" + courseId, courseId, date, holeScores, greenies: g }); /* eslint-disable-next-line */ }, [date, hs, greenies]);
 
   const setCell = (name, i, v) => setHs((s) => { const c = { ...s, [name]: [...s[name]] }; c[name][i] = v.replace(/[^0-9]/g, ""); return c; });
   const subtotal = (name, from, to) => { let s = 0; for (let i = from; i < to; i++) if (isNum(hs[name][i])) s += Number(hs[name][i]); return s; };
@@ -769,7 +801,6 @@ function RoundEditor({ pars, stakes, draft, onDraftChange, initial, onSave, onCa
     const holeScores = {}; PLAYERS.forEach((p) => (holeScores[p.name] = hs[p.name].map((x) => (x === "" ? null : Number(x)))));
     const g = {}; Object.keys(greenies).forEach((k) => { if (greenies[k]) g[k] = greenies[k]; });
     onSave({ id: initial ? initial.id : Date.now(), courseId, date, holeScores, greenies: g });
-    if (!initial) { setHs(blank(courseId)); setGreenies({}); if (onDraftChange) onDraftChange((prev) => { const base = norm(prev); const courses = { ...base.courses }; delete courses[courseId]; return { current: null, courses }; }); }
   };
 
   const greenieHoles = holePars.map((par, i) => ({ i, par })).filter(({ i, par }) => isTigerHole(courseId, i) || (par === 3 && i < sc));
@@ -783,7 +814,7 @@ function RoundEditor({ pars, stakes, draft, onDraftChange, initial, onSave, onCa
           <select value={courseId} onChange={(e) => setCourseId(e.target.value)} className="mt-1 w-full rounded-lg px-3 py-2 text-sm" style={{ border: `1px solid ${C.line}`, background: "#fff" }}>
             {COURSES.slice().sort((a, b) => whenKey(a) - whenKey(b)).map((c) => <option key={c.id} value={c.id}>{c.name} — par {displayPar(c.id, pars)} ({scoringHoles(c.id)}{c.id === "paynes" ? "+1" : ""})</option>)}
           </select>
-          {!initial && <p className="mt-1 text-xs" style={{ color: C.muted }}>Scores save per course — switching courses won't erase your entries.</p>}
+          {!initial && <p className="mt-1 text-xs" style={{ color: C.muted }}>Live — scores sync to everyone as you enter them. Switch courses freely; each keeps its own card.</p>}
         </div>
         <div>
           <label className="block text-xs font-semibold" style={{ color: C.muted }}>DATE</label>
@@ -846,20 +877,54 @@ function RoundEditor({ pars, stakes, draft, onDraftChange, initial, onSave, onCa
         </div>
       )}
 
-      <div className="mt-4 flex gap-2">
-        <button onClick={save} disabled={!anyScore} className="flex-1 rounded-lg py-3 text-sm font-bold" style={{ background: anyScore ? C.fairway : "#C7C2B5", color: "#fff" }}>{initial ? "Save changes" : "Save round"}</button>
-        {onCancel && <button onClick={onCancel} className="rounded-lg px-4 py-3 text-sm font-semibold" style={{ color: C.muted, border: `1px solid ${C.line}` }}>Cancel</button>}
-      </div>
+      {initial ? (
+        <div className="mt-4 flex gap-2">
+          <button onClick={save} disabled={!anyScore} className="flex-1 rounded-lg py-3 text-sm font-bold" style={{ background: anyScore ? C.fairway : "#C7C2B5", color: "#fff" }}>Save changes</button>
+          {onCancel && <button onClick={onCancel} className="rounded-lg px-4 py-3 text-sm font-semibold" style={{ color: C.muted, border: `1px solid ${C.line}` }}>Cancel</button>}
+        </div>
+      ) : (
+        <div className="mt-4 rounded-lg px-3 py-2 text-center text-xs font-semibold" style={{ background: "rgba(46,94,58,0.08)", color: C.fairway }}>✓ Saved live — everyone sees updates in real time</div>
+      )}
     </div>
   );
 }
 
-function Play({ pars, rounds, stakes, draft, onDraftChange, onAdd }) {
+function Play({ pars, rounds, stakes, isAdmin, onLive }) {
+  if (!isAdmin) return <LiveView rounds={rounds} pars={pars} />;
   return (
     <div className="flex flex-col gap-5">
       <I70Strip rounds={rounds} />
       <section className="rounded-2xl p-4" style={{ background: C.card, border: `1px solid ${C.line}` }}>
-        <RoundEditor pars={pars} stakes={stakes} draft={draft} onDraftChange={onDraftChange} onSave={onAdd} />
+        <RoundEditor pars={pars} stakes={stakes} rounds={rounds} onLive={onLive} />
+      </section>
+    </div>
+  );
+}
+
+function LiveView({ rounds, pars }) {
+  const played = COURSES.slice().sort((a, b) => whenKey(a) - whenKey(b));
+  const withR = played.filter((c) => rounds.some((r) => r.courseId === c.id));
+  const [courseId, setCourseId] = useState((withR[0] || played[0]).id);
+  const round = rounds.find((r) => r.courseId === courseId);
+  const holePars = getPars(courseId, pars);
+  const subtotal = (name, from, to) => { let s = 0; if (!round) return 0; const a = round.holeScores[name] || []; for (let i = from; i < to; i++) if (isNum(a[i])) s += Number(a[i]); return s; };
+  return (
+    <div className="flex flex-col gap-5">
+      <I70Strip rounds={rounds} />
+      <section className="rounded-2xl p-4" style={{ background: C.card, border: `1px solid ${C.line}` }}>
+        <h2 style={{ fontFamily: serif, fontSize: 20, fontWeight: 700 }}>Live scoring</h2>
+        <p className="text-xs" style={{ color: C.muted }}>Read-only — updates as the admin enters each hole.</p>
+        <div className="mt-3">
+          <label className="block text-xs font-semibold" style={{ color: C.muted }}>COURSE</label>
+          <select value={courseId} onChange={(e) => setCourseId(e.target.value)} className="mt-1 w-full rounded-lg px-3 py-2 text-sm" style={{ border: `1px solid ${C.line}`, background: "#fff" }}>
+            {played.map((c) => <option key={c.id} value={c.id}>{c.name} — par {displayPar(c.id, pars)}{rounds.some((r) => r.courseId === c.id) ? "" : " (no scores yet)"}</option>)}
+          </select>
+        </div>
+        {round ? (
+          <div className="mt-4 overflow-x-auto"><Scorecard holePars={holePars} readScores={round.holeScores} subtotal={subtotal} courseId={courseId} /></div>
+        ) : (
+          <p className="mt-4 text-sm" style={{ color: C.muted }}>No scores entered yet for this course.</p>
+        )}
       </section>
     </div>
   );
@@ -1006,6 +1071,9 @@ const EVENTS = [
   { date: "2026-09-03", time: "7:30 PM", kind: "Dinner", title: "Osage at Top of the Rock", sub: "4 guests · Main Dining · 417-339-5320", conf: "6FFUNW3L6RE2" },
   { date: "2026-09-04", time: "8:00 PM", endTime: "10:00 PM", kind: "Event", title: "Glow With The Flow Pool Party", sub: "Poolside" },
   { date: "2026-09-05", time: "7:15 PM", kind: "Dinner", title: "Osage at Top of the Rock", sub: "4 guests · Main Dining · 417-339-5320", conf: "6FFUTB3AH3NR" },
+  { date: "2026-09-03", time: "7:00 PM", kind: "Football", title: "Mizzou vs Arkansas-Pine Bluff", sub: "Kickoff · SEC Network" },
+  { date: "2026-09-04", time: "7:00 PM", kind: "Football", title: "KU vs Long Island", sub: "Kickoff · ESPNU" },
+  { date: "2026-09-05", time: "6:30 PM", kind: "Football", title: "Clemson at LSU", sub: "Kickoff · ABC · 7:30 PM ET" },
   { date: "2026-09-06", time: "11:00 AM", kind: "Lodging", title: "Big Cedar Lodge check-out", sub: "Departure" },
 ];
 const SUN = {
@@ -1053,7 +1121,7 @@ function Schedule() {
     .sort((a, b) => a.date.localeCompare(b.date) || a.mins - b.mins);
   if (!items.length) return <Empty text="Nothing scheduled yet." />;
   const days = [...new Set(items.map((i) => i.date))].sort();
-  const tone = { Golf: C.fairway, Dinner: C.gold, Lodging: C.pine, Event: C.gold };
+  const tone = { Golf: C.fairway, Dinner: C.gold, Lodging: C.pine, Event: C.gold, Football: "#8A5A2B" };
   return (
     <div className="flex flex-col gap-4">
       <p className="text-sm" style={{ color: C.muted }}>Trip itinerary — tee times, dining, lodging, and events, in order.</p>
@@ -1699,15 +1767,5 @@ function Empty({ text }) { return <div className="rounded-2xl px-4 py-10 text-ce
 const _root = ReactDOM.createRoot(document.getElementById("root"));
 _root.render(<App />);
 </script>
-  <script>
-    (function(){
-      var src = document.getElementById('app-source').textContent;
-      var out = Babel.transform(src, { presets: [["react", { runtime: "classic" }]] });
-      var s = document.createElement('script');
-      s.text = out.code;
-      document.body.appendChild(s);
-    })();
-  </script>
-  </script>
 </body>
 </html>

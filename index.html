@@ -56,7 +56,27 @@
       const auth = firebase.auth();
       window.BC_AUTH = {
         isAdmin: false,
-        signIn: async () => { try { await auth.signInWithPopup(new firebase.auth.GoogleAuthProvider()); } catch (e) { alert("Sign-in failed: " + (e && e.message ? e.message : e)); } },
+        signIn: () => {
+          if (document.getElementById("bc-signin")) return;
+          var w = document.createElement("div"); w.id = "bc-signin";
+          w.style.cssText = "position:fixed;inset:0;background:rgba(0,0,0,0.5);display:flex;align-items:flex-start;justify-content:center;z-index:9999;padding:70px 20px;";
+          w.innerHTML = '<div style="background:#FBF8F1;border-radius:14px;padding:18px;max-width:340px;width:100%;font-family:Georgia,serif;box-shadow:0 10px 40px rgba(0,0,0,0.3);">'
+            + '<div style="font-size:18px;font-weight:700;color:#1B3A2F;">Admin sign-in</div>'
+            + '<div style="font-size:12px;color:#6F6A5E;margin:2px 0 12px;">Enter your admin email and password.</div>'
+            + '<input id="bc-email" type="email" inputmode="email" autocapitalize="none" autocomplete="username" placeholder="Email" style="width:100%;box-sizing:border-box;padding:11px;border:1px solid #D9CFBC;border-radius:8px;font-size:16px;margin-bottom:8px;">'
+            + '<input id="bc-pass" type="password" autocomplete="current-password" placeholder="Password" style="width:100%;box-sizing:border-box;padding:11px;border:1px solid #D9CFBC;border-radius:8px;font-size:16px;margin-bottom:8px;">'
+            + '<div id="bc-err" style="color:#B22222;font-size:12px;min-height:15px;margin-bottom:8px;"></div>'
+            + '<div style="display:flex;gap:8px;"><button id="bc-go" style="flex:1;padding:11px;border:none;border-radius:8px;background:#2E5E3A;color:#fff;font-weight:700;font-size:15px;">Sign in</button>'
+            + '<button id="bc-cancel" style="padding:11px 14px;border:1px solid #D9CFBC;border-radius:8px;background:#fff;color:#6F6A5E;font-size:15px;">Cancel</button></div></div>';
+          document.body.appendChild(w);
+          var close = function () { w.remove(); };
+          w.addEventListener("click", function (e) { if (e.target === w) close(); });
+          document.getElementById("bc-cancel").onclick = close;
+          var go = function () { var em = document.getElementById("bc-email").value.trim(); var pw = document.getElementById("bc-pass").value; var er = document.getElementById("bc-err"); er.style.color = "#6F6A5E"; er.textContent = "Signing in..."; auth.signInWithEmailAndPassword(em, pw).then(close).catch(function (e) { er.style.color = "#B22222"; er.textContent = (e && e.message) ? e.message : String(e); }); };
+          document.getElementById("bc-go").onclick = go;
+          document.getElementById("bc-pass").addEventListener("keydown", function (e) { if (e.key === "Enter") go(); });
+          setTimeout(function () { try { document.getElementById("bc-email").focus(); } catch (e) {} }, 50);
+        },
         signOut: async () => { try { await auth.signOut(); } catch (e) {} try { await auth.signInAnonymously(); } catch (e) {} }
       };
       auth.onAuthStateChanged((u) => {

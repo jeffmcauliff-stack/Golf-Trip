@@ -19,6 +19,7 @@
 <script src="https://www.gstatic.com/firebasejs/10.12.5/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.5/firebase-auth-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.5/firebase-firestore-compat.js"></script>
+<script src="./firebase-config.js"></script>
 <style>
   html, body { margin: 0; background: #F3EEE3; }
   #root { min-height: 100vh; }
@@ -34,14 +35,15 @@
      Until you paste a real config, the app runs on this device only
      (localStorage) and automatically upgrades to shared sync after.
      ============================================================ */
-  const FIREBASE_CONFIG = {
+  // Your Firebase keys live in firebase-config.js (set up once) so app updates never overwrite them.
+  const FIREBASE_CONFIG = (window.BC_CONFIG && window.BC_CONFIG.firebase) || {
     apiKey: "PASTE_API_KEY",
     authDomain: "PASTE_PROJECT.firebaseapp.com",
     projectId: "PASTE_PROJECT_ID",
     appId: "PASTE_APP_ID"
   };
-  const TRIP_ID = "big-cedar-2026";   // same value on everyone's device
-  const ADMIN_UID = "PASTE_ADMIN_UID";   // your Firebase Auth UID — the ONLY account allowed to edit
+  const TRIP_ID = (window.BC_CONFIG && window.BC_CONFIG.tripId) || "big-cedar-2026";   // same value on everyone's device
+  const ADMIN_UID = (window.BC_CONFIG && window.BC_CONFIG.adminUid) || "PASTE_ADMIN_UID";   // your Firebase Auth UID — the ONLY account allowed to edit
   /* ============================================================ */
 
   const FIELD = { bigcedar_rounds: "rounds", bigcedar_pars: "pars", bigcedar_stakes: "stakes" };

@@ -235,7 +235,8 @@ const COURSES = [{
     conf: "CN2DMVTKL0M0KM"
   },
   defaultPars: Array(18).fill(3),
-  note: "Newest course — 18 par-3 holes."
+  note: "Newest course — 18 par-3 holes.",
+  cartPartners: [["Jeff", "Brian"], ["Kevin", "Carson"]]
 }, {
   id: "mountain",
   name: "Mountain Top",
@@ -260,7 +261,8 @@ const COURSES = [{
     conf: "CN3XC7WW1NWL7D"
   },
   defaultPars: Array(9).fill(3),
-  note: "9 par-3 holes; Champions Tour host."
+  note: "9 par-3 holes; Champions Tour host.",
+  cartPartners: [["Kevin", "Jeff"], ["Brian", "Carson"]]
 }, {
   id: "torputt",
   name: "Top of the Rock Putting Course",
@@ -2731,7 +2733,123 @@ function Schedule() {
     style: {
       color: C.muted
     }
-  }, "Trip itinerary \u2014 tee times, dining, lodging, and events, in order."), days.map(d => {
+  }, "Trip itinerary \u2014 tee times, dining, lodging, and events, in order."), /*#__PURE__*/React.createElement("section", {
+    className: "rounded-2xl p-4",
+    style: {
+      background: C.card,
+      border: `1px solid ${C.line}`
+    }
+  }, /*#__PURE__*/React.createElement("h2", {
+    style: {
+      fontFamily: serif,
+      fontSize: 18,
+      fontWeight: 700,
+      color: C.pine
+    }
+  }, "2v2 Matchups"), /*#__PURE__*/React.createElement("p", {
+    className: "text-xs",
+    style: {
+      color: C.muted
+    }
+  }, "Best-ball team match each round \u2014 partners rotate. The par-3 course and putting contests have no team match."), /*#__PURE__*/React.createElement("div", {
+    className: "mt-2 flex flex-col gap-2"
+  }, COURSES.filter(c => c.matchPlay).slice().sort((a, b) => whenKey(a) - whenKey(b)).map(c => /*#__PURE__*/React.createElement("div", {
+    key: c.id,
+    className: "flex items-center justify-between rounded-lg px-3 py-2",
+    style: {
+      border: `1px solid ${C.line}`
+    }
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "text-sm font-bold",
+    style: {
+      color: C.ink
+    }
+  }, /*#__PURE__*/React.createElement("span", {
+    style: {
+      color: colorOf(c.matchPlay.teamA[0])
+    }
+  }, c.matchPlay.teamA[0]), " & ", /*#__PURE__*/React.createElement("span", {
+    style: {
+      color: colorOf(c.matchPlay.teamA[1])
+    }
+  }, c.matchPlay.teamA[1]), /*#__PURE__*/React.createElement("span", {
+    style: {
+      color: C.muted,
+      fontWeight: 400
+    }
+  }, " vs "), /*#__PURE__*/React.createElement("span", {
+    style: {
+      color: colorOf(c.matchPlay.teamB[0])
+    }
+  }, c.matchPlay.teamB[0]), " & ", /*#__PURE__*/React.createElement("span", {
+    style: {
+      color: colorOf(c.matchPlay.teamB[1])
+    }
+  }, c.matchPlay.teamB[1])), /*#__PURE__*/React.createElement("div", {
+    className: "text-xs font-semibold",
+    style: {
+      color: C.muted,
+      whiteSpace: "nowrap"
+    }
+  }, c.name))))), /*#__PURE__*/React.createElement("section", {
+    className: "rounded-2xl p-4",
+    style: {
+      background: C.card,
+      border: `1px solid ${C.line}`
+    }
+  }, /*#__PURE__*/React.createElement("h2", {
+    style: {
+      fontFamily: serif,
+      fontSize: 18,
+      fontWeight: 700,
+      color: C.pine
+    }
+  }, "Cartners"), /*#__PURE__*/React.createElement("p", {
+    className: "text-xs",
+    style: {
+      color: C.muted
+    }
+  }, "Cart partners for the rounds with no 2v2 match. Mountain Top is walking \u2014 no carts."), /*#__PURE__*/React.createElement("div", {
+    className: "mt-2 flex flex-col gap-2"
+  }, COURSES.filter(c => c.cartPartners).slice().sort((a, b) => whenKey(a) - whenKey(b)).map(c => /*#__PURE__*/React.createElement("div", {
+    key: c.id,
+    className: "flex items-center justify-between rounded-lg px-3 py-2",
+    style: {
+      border: `1px solid ${C.line}`
+    }
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "text-sm font-bold",
+    style: {
+      color: C.ink
+    }
+  }, /*#__PURE__*/React.createElement("span", {
+    style: {
+      color: colorOf(c.cartPartners[0][0])
+    }
+  }, c.cartPartners[0][0]), " & ", /*#__PURE__*/React.createElement("span", {
+    style: {
+      color: colorOf(c.cartPartners[0][1])
+    }
+  }, c.cartPartners[0][1]), /*#__PURE__*/React.createElement("span", {
+    style: {
+      color: C.muted,
+      fontWeight: 400
+    }
+  }, "  \xB7  "), /*#__PURE__*/React.createElement("span", {
+    style: {
+      color: colorOf(c.cartPartners[1][0])
+    }
+  }, c.cartPartners[1][0]), " & ", /*#__PURE__*/React.createElement("span", {
+    style: {
+      color: colorOf(c.cartPartners[1][1])
+    }
+  }, c.cartPartners[1][1])), /*#__PURE__*/React.createElement("div", {
+    className: "text-xs font-semibold",
+    style: {
+      color: C.muted,
+      whiteSpace: "nowrap"
+    }
+  }, c.name))))), days.map(d => {
     const dayItems = items.filter(i => i.date === d);
     const rounds = dayItems.filter(i => i.kind === "Golf").length;
     const holes = dayItems.reduce((a, i) => a + (i.holes || 0), 0);

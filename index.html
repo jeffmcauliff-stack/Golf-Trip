@@ -12,7 +12,6 @@
 <link rel="manifest" href="./manifest.json" />
 <link rel="apple-touch-icon" href="./apple-touch-icon.png" />
 <link rel="icon" type="image/png" sizes="192x192" href="./icon-192.png" />
-<link rel="icon" type="image/svg+xml" href="./icon.svg" />
 <script src="https://unpkg.com/react@18/umd/react.production.min.js" crossorigin></script>
 <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js" crossorigin></script>
 <script src="https://cdn.tailwindcss.com"></script>
@@ -297,10 +296,11 @@ const DEFAULT_STAKES = {
   nassauFront: 10,
   nassauBack: 10,
   nassauTotal: 10,
-  greenie: 5,
+  greenie: 2,
   tiger: 15,
   i70: 35,
-  dat: 1
+  dat: 1,
+  ghost: 1
 };
 function upsertRound(arr, r) {
   const i = (arr || []).findIndex(x => x.id === r.id);
@@ -720,12 +720,22 @@ function tiebreakResults(rounds) {
     const played = rs.length > 0 && e.length > 0;
     const min = e.length ? Math.min(...e.map(x => x.t)) : null;
     const low = e.filter(x => x.t === min);
+    const declared = (rs.find(r => r.puttOffWinner) || {}).puttOffWinner || null;
+    const isTie = played && low.length > 1;
+    let winner = played && low.length === 1 ? low[0].name : null;
+    let puttOff = false;
+    if (isTie && declared && low.some(x => x.name === declared)) {
+      winner = declared;
+      puttOff = true;
+    }
     return {
       courseId: c.id,
       name: c.name,
       played,
-      winner: played && low.length === 1 ? low[0].name : null,
-      tie: played && low.length > 1,
+      winner,
+      tie: isTie && !winner,
+      puttOff,
+      tiedNames: low.map(x => x.name),
       totals: tot,
       low: min
     };
@@ -779,6 +789,98 @@ function dougAdamsTax(rounds, overrides, rate) {
     pool
   };
 }
+function ghostRace(rounds, rate) {
+  rate = rate == null ? 1 : Number(rate);
+  const houseName = (PLAYERS.find(p => !Object.keys(PRIOR).some(cid => PRIOR[cid][p.name])) || {}).name || null;
+  const direct = {};
+  PLAYERS.forEach(p => direct[p.name] = 0);
+  const pools = {};
+  const byCourse = [];
+  Object.keys(PRIOR).forEach(cid => {
+    const c = courseById(cid);
+    if (!c || c.tiebreaker || cid === "twin") return;
+    const sc = scoringHoles(cid);
+    const rd = rounds.find(r => r.courseId === cid);
+    const pick = rd && rd.ghostPick && PRIOR[cid][rd.ghostPick] ? rd.ghostPick : null;
+    const dormant = !pick;
+    const poolId = settlingTiebreaker(cid);
+    const poolCourse = poolId ? courseById(poolId) : null;
+    const rows = [];
+    Object.keys(PRIOR[cid]).forEach(name => {
+      const ghost = PRIOR[cid][name];
+      const live = rd && rd.holeScores && rd.holeScores[name] || [];
+      let liveSum = 0,
+        ghostSum = 0,
+        played = 0,
+        ghostHoles = 0;
+      for (let i = 0; i < sc; i++) {
+        if (isNum(ghost[i])) ghostHoles++;
+        if (isNum(live[i]) && isNum(ghost[i])) {
+          liveSum += Number(live[i]);
+          ghostSum += Number(ghost[i]);
+          played++;
+        }
+      }
+      const diff = liveSum - ghostSum;
+      const complete = played > 0 && played === ghostHoles;
+      const beatAmt = played > 0 && diff < 0 ? -diff * rate : 0;
+      const loseAmt = played > 0 && diff > 0 ? diff * rate : complete && diff === 0 ? rate : 0;
+      const status = played === 0 ? "none" : diff < 0 ? "beat" : diff > 0 ? "behind" : complete ? "tie" : "even";
+      let amt = 0;
+      if (!dormant) {
+        if (name === pick) {
+          if (beatAmt > 0) {
+            amt = beatAmt;
+            direct[name] += beatAmt;
+            if (houseName) direct[houseName] -= beatAmt;
+          } else if (loseAmt > 0) {
+            amt = -loseAmt;
+            direct[name] -= loseAmt;
+            if (houseName) direct[houseName] += loseAmt;
+          }
+        } else if (loseAmt > 0) {
+          amt = -loseAmt;
+          if (poolId) {
+            pools[poolId] = pools[poolId] || {
+              by: {},
+              total: 0
+            };
+            pools[poolId].by[name] = (pools[poolId].by[name] || 0) + loseAmt;
+            pools[poolId].total += loseAmt;
+          }
+        }
+      }
+      rows.push({
+        name,
+        ghost: ghostSum,
+        live: liveSum,
+        played,
+        complete,
+        diff,
+        isPick: name === pick,
+        amt,
+        status
+      });
+    });
+    byCourse.push({
+      courseId: cid,
+      name: c.name,
+      pick,
+      dormant,
+      poolId,
+      poolName: poolCourse ? poolCourse.name : null,
+      rows
+    });
+  });
+  byCourse.sort((a, b) => whenKey(courseById(a.courseId)) - whenKey(courseById(b.courseId)));
+  return {
+    houseName,
+    rate,
+    direct,
+    pools,
+    byCourse
+  };
+}
 function seasonMoney(rounds, overrides, stakes) {
   const t = {};
   PLAYERS.forEach(p => t[p.name] = {
@@ -787,6 +889,7 @@ function seasonMoney(rounds, overrides, stakes) {
     greenies: 0,
     match: 0,
     tiebreak: 0,
+    ghost: 0,
     greenieCount: 0,
     total: 0
   });
@@ -813,7 +916,16 @@ function seasonMoney(rounds, overrides, stakes) {
     PLAYERS.forEach(p => t[p.name].tiebreak -= tax.by[p.name]);
     t[firstTb.winner].tiebreak += tax.pool;
   }
-  PLAYERS.forEach(p => t[p.name].total = t[p.name].skins + t[p.name].nassau + t[p.name].greenies + t[p.name].match + t[p.name].tiebreak);
+  const gr = ghostRace(rounds, stakes && stakes.ghost != null ? stakes.ghost : 1);
+  PLAYERS.forEach(p => t[p.name].ghost = gr.direct[p.name]);
+  tbs.forEach(tb => {
+    if (!tb.winner) return;
+    const gp = gr.pools[tb.courseId];
+    if (!gp) return;
+    Object.keys(gp.by).forEach(n => t[n].ghost -= gp.by[n]);
+    t[tb.winner].tiebreak += gp.total;
+  });
+  PLAYERS.forEach(p => t[p.name].total = t[p.name].skins + t[p.name].nassau + t[p.name].greenies + t[p.name].match + t[p.name].tiebreak + t[p.name].ghost);
   return t;
 }
 function settleUp(tally) {
@@ -964,17 +1076,50 @@ function App() {
     rounds: sorted,
     stakes: stakes,
     isAdmin: isAdmin,
-    onLive: r => save(K_ROUNDS, upsertRound(rounds, r), setRounds)
+    onLive: r => {
+      const ex = rounds.find(x => x.id === r.id) || rounds.find(x => x.courseId === r.courseId) || {};
+      save(K_ROUNDS, upsertRound(rounds, {
+        ...ex,
+        ...r
+      }), setRounds);
+    }
   }) : showTab === "rounds" ? /*#__PURE__*/React.createElement(Rounds, {
     rounds: sorted,
     pars: pars,
     stakes: stakes,
     isAdmin: isAdmin,
     onUpdate: (id, r) => save(K_ROUNDS, rounds.map(x => x.id === id ? {
+      ...x,
       ...r,
       id
     } : x), setRounds),
     onDelete: id => save(K_ROUNDS, rounds.filter(x => x.id !== id), setRounds)
+  }) : showTab === "ghost" ? /*#__PURE__*/React.createElement(Ghost, {
+    rounds: sorted,
+    stakes: stakes,
+    isAdmin: isAdmin,
+    onPick: (cid, name) => {
+      const ex = rounds.find(x => x.courseId === cid);
+      let upd;
+      if (ex) {
+        upd = {
+          ...ex
+        };
+        if (name) upd.ghostPick = name;else delete upd.ghostPick;
+      } else {
+        if (!name) return;
+        const c = courseById(cid);
+        upd = {
+          id: "r-" + cid,
+          courseId: cid,
+          date: c.teeTime && c.teeTime.date || today(),
+          holeScores: {},
+          greenies: {},
+          ghostPick: name
+        };
+      }
+      save(K_ROUNDS, upsertRound(rounds, upd), setRounds);
+    }
   }) : showTab === "stats" ? /*#__PURE__*/React.createElement(Stats, {
     rounds: sorted,
     pars: pars
@@ -984,7 +1129,16 @@ function App() {
     stakes: stakes,
     isAdmin: isAdmin,
     setStakes: v => save(K_STAKES, v, setStakes),
-    onClear: () => save(K_ROUNDS, [], setRounds)
+    onClear: () => save(K_ROUNDS, [], setRounds),
+    onPuttOff: (cid, w) => {
+      const r = rounds.find(x => x.courseId === cid);
+      if (!r) return;
+      const u = {
+        ...r
+      };
+      if (w) u.puttOffWinner = w;else delete u.puttOffWinner;
+      save(K_ROUNDS, upsertRound(rounds, u), setRounds);
+    }
   }) : showTab === "schedule" ? /*#__PURE__*/React.createElement(Schedule, null) : showTab === "history" ? /*#__PURE__*/React.createElement(History, null) : showTab === "stakes" ? /*#__PURE__*/React.createElement(Stakes, {
     stakes: stakes,
     isAdmin: isAdmin,
@@ -1079,21 +1233,33 @@ function Header() {
       paddingTop: "calc(env(safe-area-inset-top) + 18px)",
       paddingBottom: 20
     }
-  }, /*#__PURE__*/React.createElement("p", {
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "flex items-center gap-3"
+  }, /*#__PURE__*/React.createElement("img", {
+    src: "./icon-192.png",
+    alt: "Big Cedar Golf",
+    onError: e => {
+      e.currentTarget.style.display = "none";
+    },
+    style: {
+      width: 56,
+      height: 56,
+      flexShrink: 0
+    }
+  }), /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("p", {
     className: "text-xs",
     style: {
       color: C.gold,
       letterSpacing: "0.25em"
     }
   }, "OZARKS GOLF TRIP"), /*#__PURE__*/React.createElement("h1", {
-    className: "mt-1",
     style: {
       fontFamily: serif,
       fontSize: 30,
       fontWeight: 700,
       lineHeight: 1.05
     }
-  }, "Big Cedar Lodge"), /*#__PURE__*/React.createElement("div", {
+  }, "Big Cedar Lodge"))), /*#__PURE__*/React.createElement("div", {
     className: "mt-3 flex flex-wrap gap-2"
   }, PLAYERS.map(p => /*#__PURE__*/React.createElement("span", {
     key: p.name,
@@ -1119,7 +1285,7 @@ function Tabs({
   setTab,
   isAdmin
 }) {
-  const base = [["play", "Play"], ["rounds", "Rounds"], ["trip", "Leaderboard"], ["stats", "Stats"], ["schedule", "Schedule"], ["courses", "Courses"], ["history", "History"], ["stakes", "Stakes"]];
+  const base = [["play", "Play"], ["rounds", "Rounds"], ["trip", "Leaderboard"], ["ghost", "Ghost"], ["stats", "Stats"], ["schedule", "Schedule"], ["courses", "Courses"], ["history", "History"], ["stakes", "Stakes"]];
   const items = base;
   const auth = typeof window !== "undefined" ? window.BC_AUTH : null;
   return /*#__PURE__*/React.createElement("nav", {
@@ -1825,7 +1991,49 @@ function RoundEditor({
       background: "rgba(201,162,75,0.12)",
       color: C.ink
     }
-  }, "Games in play \xB7 Skins $", stk.skin, "/hole \xB7 Nassau ", sc >= 18 ? `$${stk.nassauFront}/${stk.nassauBack}/${stk.nassauTotal}` : `$${stk.nassauTotal}`, course.championship ? ` · Greenies $${stk.greenie}` : "", course.id === "paynes" ? ` (+$${stk.tiger} Tiger)` : "", course.id === "twin" ? ` · Doug Adams Tax $${stk.dat}/over-par` : ""), /*#__PURE__*/React.createElement("div", {
+  }, "Games in play \xB7 Skins $", stk.skin, "/hole \xB7 Nassau ", sc >= 18 ? `$${stk.nassauFront}/${stk.nassauBack}/${stk.nassauTotal}` : `$${stk.nassauTotal}`, course.championship ? ` · Greenies $${stk.greenie}` : "", course.id === "paynes" ? ` (+$${stk.tiger} Tiger)` : "", course.id === "twin" ? ` · Doug Adams Tax $${stk.dat}/stroke over par` : ""), !initial && PRIOR[courseId] && (() => {
+    const grate = stk.ghost != null ? stk.ghost : 1;
+    const rows = Object.keys(PRIOR[courseId]).map(name => {
+      const g = PRIOR[courseId][name];
+      let ls = 0,
+        gs = 0,
+        pl = 0;
+      for (let i = 0; i < sc; i++) {
+        const v = hs[name] && hs[name][i];
+        if (isNum(v) && isNum(g[i])) {
+          ls += Number(v);
+          gs += g[i];
+          pl++;
+        }
+      }
+      return {
+        name,
+        diff: ls - gs,
+        pl
+      };
+    }).filter(r => r.pl > 0);
+    if (!rows.length) return null;
+    return /*#__PURE__*/React.createElement("div", {
+      className: "mt-2 rounded-lg px-3 py-2 text-xs",
+      style: {
+        background: "rgba(201,162,75,0.12)",
+        color: C.ink
+      }
+    }, /*#__PURE__*/React.createElement("span", {
+      className: "font-semibold"
+    }, "Beat Your Ghost · $" + grate + "/stroke"), rows.map(r => /*#__PURE__*/React.createElement("span", {
+      key: r.name
+    }, " · ", /*#__PURE__*/React.createElement("b", {
+      style: {
+        color: colorOf(r.name)
+      }
+    }, r.name), " ", /*#__PURE__*/React.createElement("span", {
+      style: {
+        color: r.diff < 0 ? C.fairway : r.diff > 0 ? C.over : C.muted,
+        fontWeight: 700
+      }
+    }, r.diff < 0 ? `${-r.diff} under` : r.diff > 0 ? `${r.diff} over` : "even"))));
+  })(), /*#__PURE__*/React.createElement("div", {
     className: "mt-4 overflow-x-auto"
   }, /*#__PURE__*/React.createElement(Scorecard, {
     holePars: holePars,
@@ -2049,6 +2257,7 @@ function Rounds({
   onUpdate,
   onDelete
 }) {
+  const shown = rounds.filter(r => PLAYERS.some(p => (r.holeScores && r.holeScores[p.name] || []).some(isNum)));
   return /*#__PURE__*/React.createElement("div", {
     className: "flex flex-col gap-3"
   }, /*#__PURE__*/React.createElement("h2", {
@@ -2063,11 +2272,11 @@ function Rounds({
       color: C.muted,
       fontWeight: 400
     }
-  }, "(", rounds.length, ")")), rounds.length === 0 ? /*#__PURE__*/React.createElement(Empty, {
+  }, "(", shown.length, ")")), shown.length === 0 ? /*#__PURE__*/React.createElement(Empty, {
     text: "No rounds yet. Head to Play to log your first round hole by hole."
   }) : /*#__PURE__*/React.createElement("div", {
     className: "flex flex-col gap-3"
-  }, [...rounds].reverse().map(r => /*#__PURE__*/React.createElement(RoundCard, {
+  }, [...shown].reverse().map(r => /*#__PURE__*/React.createElement(RoundCard, {
     key: r.id,
     round: r,
     pars: pars,
@@ -2303,7 +2512,7 @@ function RoundCard({
     }
   }, g.name || "→ tiebreaker"))))), course.id === "twin" && /*#__PURE__*/React.createElement(Detail, {
     title: "Doug Adams Tax",
-    right: `$${stakes.dat}/over-par hole`
+    right: `$${stakes.dat}/stroke over par`
   }, /*#__PURE__*/React.createElement("div", {
     className: "flex flex-col gap-1"
   }, PLAYERS.map(p => {
@@ -3457,7 +3666,7 @@ function Stakes({
   isAdmin,
   setStakes
 }) {
-  const ROWS = [["skin", "Skin / hole"], ["nassauFront", "Nassau front"], ["nassauBack", "Nassau back"], ["nassauTotal", "Nassau total"], ["greenie", "Greenie each"], ["tiger", "★ Tiger Greenie"], ["i70", "I-70 Cup / player"], ["dat", "Doug Adams Tax / stroke over par"]];
+  const ROWS = [["skin", "Skin / hole"], ["nassauFront", "Nassau front"], ["nassauBack", "Nassau back"], ["nassauTotal", "Nassau total"], ["greenie", "Greenie each"], ["tiger", "★ Tiger Greenie"], ["i70", "I-70 Cup / player"], ["dat", "Doug Adams Tax / stroke over par"], ["ghost", "Beat Your Ghost / stroke"]];
   return /*#__PURE__*/React.createElement("div", {
     className: "flex flex-col gap-6"
   }, /*#__PURE__*/React.createElement("section", {
@@ -3571,6 +3780,183 @@ function playerStats(allRounds, pars, name) {
     courses
   };
 }
+function Ghost({
+  rounds,
+  stakes,
+  isAdmin,
+  onPick
+}) {
+  const rate = stakes && stakes.ghost != null ? stakes.ghost : 1;
+  const gr = ghostRace(rounds, rate);
+  if (!gr.byCourse.length) return /*#__PURE__*/React.createElement(Empty, {
+    text: "No ghost courses set up yet."
+  });
+  const house = gr.houseName;
+  const houseNet = house ? gr.direct[house] : 0;
+  const FULL18 = ["ozarks", "buffalo", "paynes"];
+  const usedFull = {};
+  gr.byCourse.forEach(c => {
+    if (FULL18.indexOf(c.courseId) >= 0 && c.pick) usedFull[c.courseId] = c.pick;
+  });
+  const scored = cid => {
+    const rd = rounds.find(r => r.courseId === cid);
+    return !!(rd && PLAYERS.some(p => (rd.holeScores && rd.holeScores[p.name] || []).some(isNum)));
+  };
+  const disabledFor = cid => {
+    const s = {};
+    if (FULL18.indexOf(cid) < 0) return s;
+    Object.keys(usedFull).forEach(k => {
+      if (k !== cid) s[usedFull[k]] = true;
+    });
+    return s;
+  };
+  return /*#__PURE__*/React.createElement("div", {
+    className: "flex flex-col gap-6"
+  }, /*#__PURE__*/React.createElement("section", {
+    className: "rounded-2xl p-4",
+    style: {
+      background: C.card,
+      border: `1px solid ${C.line}`
+    }
+  }, /*#__PURE__*/React.createElement("h2", {
+    style: {
+      fontFamily: serif,
+      fontSize: 20,
+      fontWeight: 700
+    }
+  }, "Beat Your Ghost"), /*#__PURE__*/React.createElement("p", {
+    className: "text-xs",
+    style: {
+      color: C.muted
+    }
+  }, "Each man races his ", PRIOR_YEAR, " card at ", money(rate), "/stroke. ", house || "The odd man", " plays the House: each round he fades one golfer \u2014 that man beats his ghost and ", house, " pays, ties or does worse and he pays ", house, ". The other two only owe if they miss \u2014 a tie or worse feeds that day\u2019s putting pool."), /*#__PURE__*/React.createElement("div", {
+    className: "mt-3 rounded-lg px-3 py-3 text-center",
+    style: {
+      background: houseNet > 0 ? "rgba(46,94,58,0.08)" : houseNet < 0 ? "rgba(178,34,34,0.08)" : "rgba(111,106,94,0.08)",
+      border: `1px solid ${C.line}`
+    }
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "text-xs font-semibold",
+    style: {
+      color: C.muted,
+      letterSpacing: "0.08em"
+    }
+  }, "THE HOUSE"), /*#__PURE__*/React.createElement("div", {
+    className: "text-lg font-bold",
+    style: {
+      fontFamily: serif,
+      color: house ? colorOf(house) : C.ink
+    }
+  }, house || "—"), /*#__PURE__*/React.createElement("div", {
+    className: "text-sm font-bold",
+    style: {
+      color: netColor(houseNet)
+    }
+  }, houseNet > 0 ? `up ${money(houseNet)} on his picks` : houseNet < 0 ? `down ${money(-houseNet)} on his picks` : "even on his picks"))), gr.byCourse.map(c => {
+    const dis = disabledFor(c.courseId);
+    const locked = scored(c.courseId);
+    return /*#__PURE__*/React.createElement("section", {
+      key: c.courseId,
+      className: "rounded-2xl p-4",
+      style: {
+        background: C.card,
+        border: `1px solid ${C.line}`
+      }
+    }, /*#__PURE__*/React.createElement("div", {
+      className: "flex items-baseline justify-between"
+    }, /*#__PURE__*/React.createElement("h2", {
+      style: {
+        fontFamily: serif,
+        fontSize: 18,
+        fontWeight: 700
+      }
+    }, c.name), /*#__PURE__*/React.createElement("span", {
+      className: "text-xs",
+      style: {
+        color: C.muted
+      }
+    }, "misses feed ", c.poolName)), /*#__PURE__*/React.createElement("div", {
+      className: "mt-2 rounded-lg px-3 py-2",
+      style: {
+        background: "rgba(201,162,75,0.10)",
+        border: `1px solid ${C.line}`
+      }
+    }, /*#__PURE__*/React.createElement("div", {
+      className: "text-xs font-semibold",
+      style: {
+        color: C.ink
+      }
+    }, house, "\u2019s pick ", FULL18.indexOf(c.courseId) >= 0 ? "(no repeats across the 18s)" : "(free pick)"), isAdmin && !locked ? /*#__PURE__*/React.createElement("div", {
+      className: "mt-1 flex flex-wrap gap-2"
+    }, Object.keys(PRIOR[c.courseId]).map(n => /*#__PURE__*/React.createElement("button", {
+      key: n,
+      disabled: !!dis[n],
+      onClick: () => onPick && onPick(c.courseId, c.pick === n ? null : n),
+      className: "rounded-lg px-3 py-1.5 text-xs font-bold",
+      style: {
+        border: `1px solid ${c.pick === n ? colorOf(n) : C.line}`,
+        color: dis[n] ? C.line : colorOf(n),
+        background: c.pick === n ? "rgba(201,162,75,0.20)" : "#fff",
+        opacity: dis[n] ? 0.55 : 1
+      }
+    }, n, c.pick === n ? " ✓" : ""))) : /*#__PURE__*/React.createElement("div", {
+      className: "mt-1 text-sm font-bold",
+      style: {
+        color: c.pick ? colorOf(c.pick) : C.muted
+      }
+    }, c.pick || "— not set", locked && c.pick ? " (locked)" : "")), c.dormant ? /*#__PURE__*/React.createElement("p", {
+      className: "mt-2 text-xs",
+      style: {
+        color: C.muted
+      }
+    }, "Dormant \u2014 no money until ", house, " makes a pick.") : null, /*#__PURE__*/React.createElement("div", {
+      className: "mt-2 flex flex-col gap-2"
+    }, c.rows.map(r => {
+      const d = r.diff;
+      const tag = r.played === 0 ? "not started" : d < 0 ? `${-d} under` : d > 0 ? `${d} over` : r.complete ? "tied" : "even";
+      let note = "";
+      if (!c.dormant && r.played > 0) {
+        if (r.isPick) note = r.amt > 0 ? `${money(r.amt)} from ${house}` : r.amt < 0 ? `${money(-r.amt)} to ${house}` : "";else note = r.amt < 0 ? `${money(-r.amt)} → ${c.poolName}` : r.status === "beat" ? "safe" : "";
+      }
+      return /*#__PURE__*/React.createElement("div", {
+        key: r.name,
+        className: "rounded-lg px-3 py-2",
+        style: {
+          border: `1px solid ${r.isPick ? C.gold : C.line}`,
+          background: r.isPick ? "rgba(201,162,75,0.06)" : "transparent"
+        }
+      }, /*#__PURE__*/React.createElement("div", {
+        className: "flex items-center justify-between"
+      }, /*#__PURE__*/React.createElement("span", {
+        className: "text-sm font-bold",
+        style: {
+          color: colorOf(r.name)
+        }
+      }, r.name, r.isPick ? /*#__PURE__*/React.createElement("span", {
+        style: {
+          color: C.muted,
+          fontWeight: 400
+        }
+      }, " \xB7 the pick") : null), /*#__PURE__*/React.createElement("span", {
+        className: "text-sm font-bold",
+        style: {
+          color: r.amt > 0 ? C.fairway : r.amt < 0 ? C.over : C.muted
+        }
+      }, note || (r.played === 0 ? "—" : ""))), /*#__PURE__*/React.createElement("div", {
+        className: "mt-0.5 flex items-center justify-between text-xs"
+      }, /*#__PURE__*/React.createElement("span", {
+        style: {
+          color: C.muted
+        }
+      }, "Ghost ", r.ghost, " \xB7 Live ", r.live, r.played > 0 && !r.complete ? ` · thru ${r.played}` : ""), /*#__PURE__*/React.createElement("span", {
+        style: {
+          color: d < 0 ? C.fairway : d > 0 ? C.over : C.muted,
+          fontWeight: 700
+        }
+      }, r.played === 0 ? "" : tag)));
+    })));
+  }));
+}
 
 /* ============ TRIP ============ */
 function Trip({
@@ -3579,7 +3965,8 @@ function Trip({
   stakes,
   isAdmin,
   setStakes,
-  onClear
+  onClear,
+  onPuttOff
 }) {
   const hb = rounds.filter(r => r.holeScores);
   const board = useMemo(() => scoringLeaderboard(hb, pars), [hb, pars]);
@@ -3652,7 +4039,7 @@ function Trip({
     style: {
       color: "rgba(243,238,227,0.85)"
     }
-  }, toParStr(Math.round(champ.overall.avg * 10) / 10), " scoring average \xB7 ", champ.overall.rounds, " rounds"), /*#__PURE__*/React.createElement("div", {
+  }, toParStr(champ.overall.total), " to par \xB7 ", champ.overall.rounds, " rounds \xB7 low man wins"), /*#__PURE__*/React.createElement("div", {
     className: "mt-4 grid grid-cols-2 gap-2"
   }, /*#__PURE__*/React.createElement(Award, {
     label: "Money leader",
@@ -3868,19 +4255,19 @@ function Trip({
     style: {
       color: C.muted
     }
-  }, "Net across ", hb.length, " scored round", hb.length === 1 ? "" : "s", ", including the I-70 Cup (live regional standing). Each game = every player antes the stake, the winner takes the pot."), /*#__PURE__*/React.createElement("div", {
+  }, "Net across ", hb.length, " scored round", hb.length === 1 ? "" : "s", ", including the I-70 Cup (live regional standing) and Beat Your Ghost (Brian banks it). Each game = every player antes the stake, the winner takes the pot."), /*#__PURE__*/React.createElement("div", {
     className: "mt-3 overflow-x-auto"
   }, /*#__PURE__*/React.createElement("table", {
     style: {
       width: "100%",
       borderCollapse: "collapse",
-      minWidth: 620
+      minWidth: 720
     }
   }, /*#__PURE__*/React.createElement("thead", null, /*#__PURE__*/React.createElement("tr", {
     style: {
       color: C.muted
     }
-  }, ["Player", "Skins", "Nassau", "Greenies", "Match", "Tiebreak", "I-70 Cup", "Net"].map(h => /*#__PURE__*/React.createElement("th", {
+  }, ["Player", "Skins", "Nassau", "Greenies", "Match", "Tiebreak", "Ghost", "I-70 Cup", "Net"].map(h => /*#__PURE__*/React.createElement("th", {
     key: h,
     className: "px-2 py-1 text-left text-xs"
   }, h)))), /*#__PURE__*/React.createElement("tbody", null, moneyRows.map((r, i) => /*#__PURE__*/React.createElement("tr", {
@@ -3924,6 +4311,11 @@ function Trip({
       color: netColor(r.tiebreak)
     }
   }, money(r.tiebreak)), /*#__PURE__*/React.createElement("td", {
+    className: "px-2 py-2 text-sm",
+    style: {
+      color: netColor(r.ghost)
+    }
+  }, money(r.ghost)), /*#__PURE__*/React.createElement("td", {
     className: "px-2 py-2 text-sm",
     style: {
       color: netColor(r.i70)
@@ -4034,8 +4426,8 @@ function Trip({
       key: r.name,
       className: "rounded-lg py-2 text-center",
       style: {
-        background: i === 0 && !tb.tie ? "rgba(201,162,75,0.16)" : "transparent",
-        border: `1px solid ${i === 0 && !tb.tie ? C.gold : C.line}`
+        background: r.name === tb.winner ? "rgba(201,162,75,0.16)" : "transparent",
+        border: `1px solid ${r.name === tb.winner ? C.gold : C.line}`
       }
     }, /*#__PURE__*/React.createElement("div", {
       className: "text-xs font-semibold",
@@ -4058,7 +4450,41 @@ function Trip({
       style: {
         color: colorOf(tb.winner)
       }
-    }, tb.winner), " won and swept ", money(fullWon), taxPool > 0 ? " (pushes + Doug Adams Tax)" : "", ".") : tb.tie ? `Putting is tied — ${money(fullPot)} stays unsettled until someone wins outright.` : /*#__PURE__*/React.createElement("span", null, /*#__PURE__*/React.createElement("b", null, money(fullPot)), " waiting on this course \u2014 lowest total sweeps it.")), mine.length > 0 && /*#__PURE__*/React.createElement("div", {
+    }, tb.winner), " won", tb.puttOff ? " a putt-off" : "", " and swept ", money(fullWon), taxPool > 0 ? " (pushes + Doug Adams Tax)" : "", ".") : tb.tie ? `Putting is tied — ${money(fullPot)} rides on a putt-off.` : /*#__PURE__*/React.createElement("span", null, /*#__PURE__*/React.createElement("b", null, money(fullPot)), " waiting on this course \u2014 lowest total sweeps it.")), isAdmin && tb.tie && fullPot > 0 && /*#__PURE__*/React.createElement("div", {
+      className: "mt-2 rounded-lg px-3 py-2",
+      style: {
+        border: `1px dashed ${C.gold}`,
+        background: "rgba(201,162,75,0.06)"
+      }
+    }, /*#__PURE__*/React.createElement("div", {
+      className: "text-xs font-semibold",
+      style: {
+        color: C.ink
+      }
+    }, "Putt-off \u2014 declare the winner"), /*#__PURE__*/React.createElement("div", {
+      className: "mt-1 flex flex-wrap gap-2"
+    }, tb.tiedNames.map(n => /*#__PURE__*/React.createElement("button", {
+      key: n,
+      onClick: () => onPuttOff && onPuttOff(tb.courseId, n),
+      className: "rounded-lg px-3 py-1.5 text-xs font-bold",
+      style: {
+        border: `1px solid ${colorOf(n)}`,
+        color: colorOf(n),
+        background: "#fff"
+      }
+    }, n, " wins")))), isAdmin && tb.puttOff && /*#__PURE__*/React.createElement("div", {
+      className: "mt-2 flex items-center justify-between text-xs"
+    }, /*#__PURE__*/React.createElement("span", {
+      style: {
+        color: C.muted
+      }
+    }, "Winner decided by putt-off."), /*#__PURE__*/React.createElement("button", {
+      onClick: () => onPuttOff && onPuttOff(tb.courseId, null),
+      className: "font-semibold",
+      style: {
+        color: C.muted
+      }
+    }, "Undo")), mine.length > 0 && /*#__PURE__*/React.createElement("div", {
       className: "mt-2 flex flex-col gap-1"
     }, mine.map((b, i) => /*#__PURE__*/React.createElement("div", {
       key: i,
@@ -4135,9 +4561,10 @@ function tripChampion(allRounds, pars, tally) {
   const avgs = PLAYERS.map(p => ({
     name: p.name,
     rounds: t[p.name].length,
+    total: t[p.name].reduce((x, y) => x + y, 0),
     avg: t[p.name].length ? t[p.name].reduce((x, y) => x + y, 0) / t[p.name].length : Infinity
   })).filter(x => x.rounds > 0);
-  const overall = avgs.length ? avgs.sort((a, b) => a.avg - b.avg)[0] : null;
+  const overall = avgs.length ? avgs.slice().sort((a, b) => a.total - b.total)[0] : null;
   const arr = PLAYERS.map(p => ({
     name: p.name,
     ...tally[p.name]

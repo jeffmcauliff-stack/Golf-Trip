@@ -2,7 +2,7 @@ import React, { useState, useEffect, useMemo, useRef } from "react";
 
 /* ============ static data ============ */
 const PLAYERS = [
-  { name: "Jeff",   color: "#2E5E3A" },
+  { name: "Jeff",   color: "#D14E8A" },
   { name: "Kevin",  color: "#B5683C" },
   { name: "Carson", color: "#4A6FA5" },
   { name: "Brian",  color: "#C9A24B" },
@@ -48,18 +48,20 @@ const COURSES = [
     type: "Par-3", championship: false,
     teeTime: { date: "2026-09-04", time: "2:30 PM", conf: "CN2DMVTKL0M0KM" },
     defaultPars: Array(18).fill(3), note: "Newest course — 18 par-3 holes.",
+    cartPartners: [["Jeff", "Brian"], ["Kevin", "Carson"]], greenies: true,
   },
   {
     id: "mountain", name: "Mountain Top", designer: "Gary Player & Johnny Morris",
     type: "Short / walking", championship: false,
     teeTime: { date: "2026-09-05", time: "8:00 AM" },
-    defaultPars: Array(13).fill(3), note: "13 holes, walking only — no carts.",
+    defaultPars: Array(13).fill(3), note: "13 holes, walking only — no carts.", greenies: true,
   },
   {
     id: "tor", name: "Top of the Rock", designer: "Jack Nicklaus",
     type: "Par-3", championship: false,
     teeTime: { date: "2026-09-03", time: "5:00 PM", conf: "CN3XC7WW1NWL7D" },
     defaultPars: Array(9).fill(3), note: "9 par-3 holes; Champions Tour host.",
+    cartPartners: [["Kevin", "Jeff"], ["Brian", "Carson"]], greenies: true,
   },
   {
     id: "torputt", name: "Top of the Rock Putting Course", designer: "Johnny & JP Morris",
@@ -78,7 +80,7 @@ const COURSES = [
 ];
 const courseById = (id) => COURSES.find((c) => c.id === id);
 
-const DEFAULT_STAKES = { skin: 2, nassauFront: 10, nassauBack: 10, nassauTotal: 10, greenie: 2, tiger: 15, i70: 35, dat: 1, ghost: 1 };
+const DEFAULT_STAKES = { skin: 2, nassauFront: 10, nassauBack: 10, nassauTotal: 10, greenie: 2, greenieP3: 2, tiger: 15, i70: 35, dat: 1, ghost: 1 };
 function upsertRound(arr, r) { const i = (arr || []).findIndex((x) => x.id === r.id); if (i >= 0) { const c = arr.slice(); c[i] = r; return c; } return [...(arr || []), r]; }
 const K_ROUNDS = "bigcedar_rounds", K_PARS = "bigcedar_pars", K_STAKES = "bigcedar_stakes", K_DRAFT = "bigcedar_draft";
 
@@ -163,12 +165,13 @@ function computeNassau(r, overrides, stakes) {
 }
 function computeGreenies(r, overrides, stakes) {
   const course = courseById(r.courseId);
-  if (!course.championship) return null;
+  if (!course.championship && !course.greenies) return null;
   const pars = getPars(r.courseId, overrides); const sc = scoringHoles(r.courseId);
+  const gRate = course.championship ? (stakes.greenie != null ? stakes.greenie : 2) : (stakes.greenieP3 != null ? stakes.greenieP3 : (stakes.greenie != null ? stakes.greenie : 2));
   const res = [];
   pars.forEach((par, i) => {
     if (isTigerHole(r.courseId, i)) res.push({ hole: 19, idx: i, name: r.greenies?.[i] || null, value: stakes.tiger, tiger: true });
-    else if (par === 3 && i < sc) res.push({ hole: i + 1, idx: i, name: r.greenies?.[i] || null, value: stakes.greenie });
+    else if (par === 3 && i < sc) res.push({ hole: i + 1, idx: i, name: r.greenies?.[i] || null, value: gRate });
   });
   return { res };
 }
@@ -446,6 +449,7 @@ export default function App() {
     <div style={{ background: C.parchment, minHeight: "100vh", color: C.ink, fontFamily: "system-ui, -apple-system, sans-serif" }}>
       <Header /><Tabs tab={showTab} setTab={setTab} isAdmin={isAdmin} />
       <InstallHint />
+      <PullToRefresh />
       {saveError && <div className="mx-auto px-4 pt-3" style={{ maxWidth: 820 }}><div className="rounded-lg px-3 py-2 text-sm" style={{ background: "#FBE6E0", color: C.over }}>Couldn't save your last change — try again.</div></div>}
       <main className="mx-auto px-4 pb-20 pt-4" style={{ maxWidth: 820 }}>
         {loading ? <p className="py-12 text-center" style={{ color: C.muted }}>Loading the scorecard…</p>
@@ -464,6 +468,47 @@ export default function App() {
 }
 
 /* ============ header / tabs ============ */
+function PullToRefresh() {
+  const [pull, setPull] = useState(0);
+  const [refreshing, setRefreshing] = useState(false);
+  const ref = useRef({ startY: 0, active: false, dist: 0 });
+  useEffect(() => {
+    const standalone = (window.matchMedia && window.matchMedia("(display-mode: standalone)").matches) || window.navigator.standalone === true;
+    if (!standalone) return;
+    const THRESH = 70, MAX = 110, s = ref.current;
+    const onStart = (e) => { if (window.scrollY > 0) { s.active = false; return; } s.startY = e.touches[0].clientY; s.active = true; s.dist = 0; };
+    const onMove = (e) => {
+      if (!s.active) return;
+      const dy = e.touches[0].clientY - s.startY;
+      if (dy <= 0 || window.scrollY > 0) { s.active = false; s.dist = 0; setPull(0); return; }
+      const d = Math.min(MAX, dy * 0.5);
+      s.dist = d; setPull(d);
+      if (d > 4 && e.cancelable) e.preventDefault();
+    };
+    const onEnd = () => {
+      if (!s.active) return;
+      s.active = false;
+      if (s.dist >= THRESH) { setRefreshing(true); setPull(THRESH); setTimeout(() => window.location.reload(), 350); }
+      else { s.dist = 0; setPull(0); }
+    };
+    window.addEventListener("touchstart", onStart, { passive: true });
+    window.addEventListener("touchmove", onMove, { passive: false });
+    window.addEventListener("touchend", onEnd, { passive: true });
+    window.addEventListener("touchcancel", onEnd, { passive: true });
+    return () => { window.removeEventListener("touchstart", onStart); window.removeEventListener("touchmove", onMove); window.removeEventListener("touchend", onEnd); window.removeEventListener("touchcancel", onEnd); };
+  }, []);
+  if (pull <= 0 && !refreshing) return null;
+  const ready = pull >= 70 || refreshing;
+  return (
+    <div style={{ position: "fixed", top: 0, left: 0, right: 0, display: "flex", justifyContent: "center", pointerEvents: "none", zIndex: 9998, transform: `translateY(${Math.max(0, pull - 8)}px)`, transition: refreshing ? "transform 0.2s" : "none" }}>
+      <div style={{ marginTop: "calc(env(safe-area-inset-top) + 6px)", background: C.pine, color: C.parchment, borderRadius: 999, padding: "6px 14px", fontSize: 12, fontWeight: 700, fontFamily: serif, boxShadow: "0 6px 16px rgba(0,0,0,0.25)", display: "flex", alignItems: "center", gap: 8 }}>
+        <span style={{ display: "inline-block", transition: "transform 0.15s", transform: ready && !refreshing ? "rotate(180deg)" : "rotate(0deg)" }}>{refreshing ? "↻" : "↓"}</span>
+        {refreshing ? "Refreshing…" : ready ? "Release to refresh" : "Pull to refresh"}
+      </div>
+    </div>
+  );
+}
+
 function InstallHint() {
   const [show, setShow] = useState(false);
   const [plat, setPlat] = useState("ios");
@@ -780,7 +825,7 @@ function RoundEditor({ pars, stakes, rounds, onLive, initial, onSave, onCancel }
       )}
       {!course.tiebreaker && (
         <div className="mt-2 rounded-lg px-3 py-2 text-xs" style={{ background: "rgba(201,162,75,0.12)", color: C.ink }}>
-          Games in play · Skins ${stk.skin}/hole · Nassau {sc >= 18 ? `$${stk.nassauFront}/${stk.nassauBack}/${stk.nassauTotal}` : `$${stk.nassauTotal}`}{course.championship ? ` · Greenies $${stk.greenie}` : ""}{course.id === "paynes" ? ` (+$${stk.tiger} Tiger)` : ""}{course.id === "twin" ? ` · Doug Adams Tax $${stk.dat}/stroke over par` : ""}
+          Games in play · Skins ${stk.skin}/hole · Nassau {sc >= 18 ? `$${stk.nassauFront}/${stk.nassauBack}/${stk.nassauTotal}` : `$${stk.nassauTotal}`}{(course.championship || course.greenies) ? ` · Greenies $${course.championship ? stk.greenie : (stk.greenieP3 != null ? stk.greenieP3 : stk.greenie)}` : ""}{course.id === "paynes" ? ` (+$${stk.tiger} Tiger)` : ""}{course.id === "twin" ? ` · Doug Adams Tax $${stk.dat}/stroke over par` : ""}
         </div>
       )}
       {!initial && PRIOR[courseId] && (() => {
@@ -811,7 +856,7 @@ function RoundEditor({ pars, stakes, rounds, onLive, initial, onSave, onCancel }
         })}
       </div>
 
-      {course.championship && greenieHoles.length > 0 && (
+      {(course.championship || course.greenies) && greenieHoles.length > 0 && (
         <div className="mt-4">
           <p className="text-xs font-semibold" style={{ color: C.muted }}>GREENIES — closest to pin on the par 3s</p>
           <div className="mt-2 flex flex-col gap-2">
@@ -990,7 +1035,7 @@ function RoundCard({ round, pars, stakes, isAdmin, onUpdate, onDelete }) {
                 </div>
               </Detail>
               {greenies && (
-                <Detail title="Greenies" right={`$${stakes.greenie} · Tiger $${stakes.tiger}`}>
+                <Detail title="Greenies" right={`$${course.championship ? stakes.greenie : (stakes.greenieP3 != null ? stakes.greenieP3 : stakes.greenie)}${course.id === "paynes" ? ` · Tiger $${stakes.tiger}` : ""}`}>
                   <div className="flex flex-col gap-1">
                     {greenies.res.map((g) => <div key={g.idx} className="flex items-center justify-between text-sm"><span style={{ color: g.tiger ? C.gold : C.muted }}>{g.tiger ? "★ Tiger (H19)" : `Hole ${g.hole}`}</span><span className="font-semibold" style={{ color: g.name ? colorOf(g.name) : C.muted }}>{g.name || "→ tiebreaker"}</span></div>)}
                   </div>
@@ -1083,6 +1128,38 @@ function Schedule() {
   return (
     <div className="flex flex-col gap-4">
       <p className="text-sm" style={{ color: C.muted }}>Trip itinerary — tee times, dining, lodging, and events, in order.</p>
+      <section className="rounded-2xl p-4" style={{ background: C.card, border: `1px solid ${C.line}` }}>
+        <h2 style={{ fontFamily: serif, fontSize: 18, fontWeight: 700, color: C.pine }}>2v2 Matchups</h2>
+        <p className="text-xs" style={{ color: C.muted }}>Best-ball team match each round — partners rotate. The par-3 course and putting contests have no team match.</p>
+        <div className="mt-2 flex flex-col gap-2">
+          {COURSES.filter((c) => c.matchPlay).slice().sort((a, b) => whenKey(a) - whenKey(b)).map((c) => (
+            <div key={c.id} className="flex items-center justify-between rounded-lg px-3 py-2" style={{ border: `1px solid ${C.line}` }}>
+              <div className="text-sm font-bold" style={{ color: C.ink }}>
+                <span style={{ color: colorOf(c.matchPlay.teamA[0]) }}>{c.matchPlay.teamA[0]}</span> & <span style={{ color: colorOf(c.matchPlay.teamA[1]) }}>{c.matchPlay.teamA[1]}</span>
+                <span style={{ color: C.muted, fontWeight: 400 }}> vs </span>
+                <span style={{ color: colorOf(c.matchPlay.teamB[0]) }}>{c.matchPlay.teamB[0]}</span> & <span style={{ color: colorOf(c.matchPlay.teamB[1]) }}>{c.matchPlay.teamB[1]}</span>
+              </div>
+              <div className="text-xs font-semibold" style={{ color: C.muted, whiteSpace: "nowrap" }}>{c.name}</div>
+            </div>
+          ))}
+        </div>
+      </section>
+      <section className="rounded-2xl p-4" style={{ background: C.card, border: `1px solid ${C.line}` }}>
+        <h2 style={{ fontFamily: serif, fontSize: 18, fontWeight: 700, color: C.pine }}>Cartners</h2>
+        <p className="text-xs" style={{ color: C.muted }}>Cart partners for the rounds with no 2v2 match. Mountain Top is walking — no carts.</p>
+        <div className="mt-2 flex flex-col gap-2">
+          {COURSES.filter((c) => c.cartPartners).slice().sort((a, b) => whenKey(a) - whenKey(b)).map((c) => (
+            <div key={c.id} className="flex items-center justify-between rounded-lg px-3 py-2" style={{ border: `1px solid ${C.line}` }}>
+              <div className="text-sm font-bold" style={{ color: C.ink }}>
+                <span style={{ color: colorOf(c.cartPartners[0][0]) }}>{c.cartPartners[0][0]}</span> & <span style={{ color: colorOf(c.cartPartners[0][1]) }}>{c.cartPartners[0][1]}</span>
+                <span style={{ color: C.muted, fontWeight: 400 }}>  ·  </span>
+                <span style={{ color: colorOf(c.cartPartners[1][0]) }}>{c.cartPartners[1][0]}</span> & <span style={{ color: colorOf(c.cartPartners[1][1]) }}>{c.cartPartners[1][1]}</span>
+              </div>
+              <div className="text-xs font-semibold" style={{ color: C.muted, whiteSpace: "nowrap" }}>{c.name}</div>
+            </div>
+          ))}
+        </div>
+      </section>
       {days.map((d) => {
         const dayItems = items.filter((i) => i.date === d);
         const rounds = dayItems.filter((i) => i.kind === "Golf").length;
@@ -1232,7 +1309,7 @@ function Courses({ pars, isAdmin, setPars }) {
             </div>
             <p className="mt-1 text-sm">{c.designer}</p>
             <div className="mt-2 flex gap-4 text-sm"><span><b>{sc}{c.id === "paynes" ? " + bonus 19th" : ""}</b> holes</span><span>par <b>{displayPar(c.id, pars)}</b></span></div>
-            {c.championship && <p className="mt-1 text-xs" style={{ color: C.fairway }}>Greenie holes (par 3): {par3s.join(", ")}{c.id === "paynes" ? " + 19th (★ Tiger Greenie)" : ""}</p>}
+            {(c.championship || c.greenies) && <p className="mt-1 text-xs" style={{ color: C.fairway }}>Greenie holes (par 3): {par3s.join(", ")}{c.id === "paynes" ? " + 19th (★ Tiger Greenie)" : ""}</p>}
             {c.note && <p className="mt-2 text-xs" style={{ color: C.muted }}>{c.note}</p>}
             {c.teeTime && (
               <div className="mt-2 rounded-lg px-3 py-2" style={{ background: "rgba(201,162,75,0.12)", border: `1px solid ${C.gold}` }}>
@@ -1439,7 +1516,7 @@ function scoringLeaderboard(allRounds, pars) {
 }
 
 function Stakes({ stakes, isAdmin, setStakes }) {
-  const ROWS = [["skin", "Skin / hole"], ["nassauFront", "Nassau front"], ["nassauBack", "Nassau back"], ["nassauTotal", "Nassau total"], ["greenie", "Greenie each"], ["tiger", "★ Tiger Greenie"], ["i70", "I-70 Cup / player"], ["dat", "Doug Adams Tax / stroke over par"], ["ghost", "Beat Your Ghost / stroke"]];
+  const ROWS = [["skin", "Skin / hole"], ["nassauFront", "Nassau front"], ["nassauBack", "Nassau back"], ["nassauTotal", "Nassau total"], ["greenie", "Greenie · championship"], ["greenieP3", "Greenie · par-3 courses"], ["tiger", "★ Tiger Greenie"], ["i70", "I-70 Cup / player"], ["dat", "Doug Adams Tax / stroke over par"], ["ghost", "Beat Your Ghost / stroke"]];
   return (
     <div className="flex flex-col gap-6">
       <section className="rounded-2xl p-4" style={{ background: C.card, border: `1px solid ${C.line}` }}>

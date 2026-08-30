@@ -978,6 +978,7 @@ const C = {
   over: "#B22222"
 };
 const serif = "Georgia, 'Times New Roman', serif";
+const sans = "system-ui, -apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif";
 const parColor = n => n > 0 ? C.over : n < 0 ? C.pine : C.ink;
 const netColor = n => n > 0 ? C.fairway : n < 0 ? C.over : C.muted;
 const colorOf = name => PLAYERS.find(p => p.name === name).color;
@@ -1051,9 +1052,11 @@ function App() {
       background: C.parchment,
       minHeight: "100vh",
       color: C.ink,
-      fontFamily: "system-ui, -apple-system, sans-serif"
+      fontFamily: sans,
+      fontVariantNumeric: "tabular-nums",
+      WebkitFontSmoothing: "antialiased"
     }
-  }, /*#__PURE__*/React.createElement(Header, null), /*#__PURE__*/React.createElement(Tabs, {
+  }, /*#__PURE__*/React.createElement("style", null, `.rounded-2xl{box-shadow:0 1px 2px rgba(27,58,47,.05), 0 14px 30px -22px rgba(27,58,47,.40);} .pillscroll::-webkit-scrollbar{display:none;} button{cursor:pointer;transition:transform .08s ease, opacity .12s ease, background .12s ease, color .12s ease, border-color .12s ease;} button:active{transform:translateY(1px);} button:disabled{cursor:default;} @keyframes bcspin{to{transform:rotate(360deg);}}`), /*#__PURE__*/React.createElement(Header, null), /*#__PURE__*/React.createElement(Tabs, {
     tab: showTab,
     setTab: setTab,
     isAdmin: isAdmin
@@ -1073,12 +1076,23 @@ function App() {
     style: {
       maxWidth: 820
     }
-  }, loading ? /*#__PURE__*/React.createElement("p", {
-    className: "py-12 text-center",
+  }, loading ? /*#__PURE__*/React.createElement("div", {
+    className: "py-16 text-center",
     style: {
       color: C.muted
     }
-  }, "Loading the scorecard\u2026") : showTab === "play" ? /*#__PURE__*/React.createElement(Play, {
+  }, /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: "flex",
+      justifyContent: "center",
+      marginBottom: 12
+    }
+  }, /*#__PURE__*/React.createElement(CoinMark, {
+    size: 52,
+    spin: true
+  })), /*#__PURE__*/React.createElement("p", {
+    className: "text-sm"
+  }, "Loading the scorecard\u2026")) : showTab === "play" ? /*#__PURE__*/React.createElement(Play, {
     pars: pars,
     rounds: sorted,
     stakes: stakes,
@@ -1146,10 +1160,21 @@ function App() {
       if (w) u.puttOffWinner = w;else delete u.puttOffWinner;
       save(K_ROUNDS, upsertRound(rounds, u), setRounds);
     }
-  }) : showTab === "schedule" ? /*#__PURE__*/React.createElement(Schedule, null) : showTab === "history" ? /*#__PURE__*/React.createElement(History, null) : showTab === "stakes" ? /*#__PURE__*/React.createElement(Stakes, {
+  }) : showTab === "schedule" ? /*#__PURE__*/React.createElement(Schedule, null) : showTab === "history" ? /*#__PURE__*/React.createElement(History, null) : showTab === "money" ? /*#__PURE__*/React.createElement(Money, {
+    rounds: sorted,
+    pars: pars,
     stakes: stakes,
     isAdmin: isAdmin,
-    setStakes: v => save(K_STAKES, v, setStakes)
+    setStakes: v => save(K_STAKES, v, setStakes),
+    onPuttOff: (cid, w) => {
+      const r = rounds.find(x => x.courseId === cid);
+      if (!r) return;
+      const u = {
+        ...r
+      };
+      if (w) u.puttOffWinner = w;else delete u.puttOffWinner;
+      save(K_ROUNDS, upsertRound(rounds, u), setRounds);
+    }
   }) : /*#__PURE__*/React.createElement(Courses, {
     pars: pars,
     isAdmin: isAdmin,
@@ -1363,9 +1388,9 @@ function Header() {
     className: "text-xs",
     style: {
       color: C.gold,
-      letterSpacing: "0.25em"
+      letterSpacing: "0.22em"
     }
-  }, "OZARKS GOLF TRIP"), /*#__PURE__*/React.createElement("h1", {
+  }, "THE BIG CEDAR SHOOTOUT \xB7 SEP 2\u20135"), /*#__PURE__*/React.createElement("h1", {
     style: {
       fontFamily: serif,
       fontSize: 30,
@@ -1398,7 +1423,7 @@ function Tabs({
   setTab,
   isAdmin
 }) {
-  const base = [["play", "Play"], ["rounds", "Rounds"], ["trip", "Leaderboard"], ["ghost", "Ghost"], ["stats", "Stats"], ["schedule", "Schedule"], ["courses", "Courses"], ["history", "History"], ["stakes", "Stakes"]];
+  const base = [["play", "Play"], ["rounds", "Rounds"], ["trip", "Leaderboard"], ["money", "Money"], ["ghost", "Ghost"], ["stats", "Stats"], ["schedule", "Schedule"], ["courses", "Courses"], ["history", "History"]];
   const items = base;
   const auth = typeof window !== "undefined" ? window.BC_AUTH : null;
   return /*#__PURE__*/React.createElement("nav", {
@@ -1417,36 +1442,30 @@ function Tabs({
   }, /*#__PURE__*/React.createElement("div", {
     className: "flex items-center gap-2"
   }, /*#__PURE__*/React.createElement("div", {
+    className: "pillscroll",
     style: {
-      position: "relative",
       flex: 1,
-      maxWidth: 240
+      overflowX: "auto",
+      scrollbarWidth: "none",
+      WebkitOverflowScrolling: "touch"
     }
-  }, /*#__PURE__*/React.createElement("select", {
-    value: tab,
-    onChange: e => setTab(e.target.value),
-    className: "w-full appearance-none rounded-lg pl-3 pr-9 py-2 font-semibold",
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "flex gap-2",
     style: {
-      background: "#fff",
-      border: `1px solid ${C.line}`,
-      color: C.pine,
-      fontFamily: serif,
-      fontSize: 15
+      width: "max-content"
     }
-  }, items.map(([id, label]) => /*#__PURE__*/React.createElement("option", {
+  }, items.map(([id, label]) => /*#__PURE__*/React.createElement("button", {
     key: id,
-    value: id
-  }, label))), /*#__PURE__*/React.createElement("span", {
+    onClick: () => setTab(id),
+    className: "rounded-full px-3.5 py-1.5 text-sm font-semibold",
     style: {
-      position: "absolute",
-      right: 12,
-      top: "50%",
-      transform: "translateY(-50%)",
-      pointerEvents: "none",
-      color: C.muted,
-      fontSize: 12
+      whiteSpace: "nowrap",
+      border: `1px solid ${tab === id ? C.pine : C.line}`,
+      background: tab === id ? C.pine : "#fff",
+      color: tab === id ? C.parchment : C.pine,
+      transition: "background 0.12s, color 0.12s"
     }
-  }, "\u25BE")), auth && (isAdmin ? /*#__PURE__*/React.createElement("button", {
+  }, label)))), auth && (isAdmin ? /*#__PURE__*/React.createElement("button", {
     onClick: () => auth.signOut(),
     className: "rounded-lg px-3 py-2 text-xs font-semibold",
     style: {
@@ -1539,7 +1558,7 @@ function Mark({
       justifyContent: "center",
       width: s + 7,
       height: s + 7,
-      fontFamily: serif,
+      fontFamily: sans,
       fontWeight: 700,
       color: col
     }
@@ -1719,7 +1738,7 @@ function Scorecard({
     key: i,
     style: {
       borderTop: `1px solid ${C.line}`,
-      background: bonus ? "rgba(201,162,75,0.14)" : "transparent"
+      background: bonus ? "rgba(201,162,75,0.14)" : i % 2 ? "rgba(27,58,47,0.035)" : "transparent"
     }
   }, /*#__PURE__*/React.createElement("td", {
     className: "px-1 py-1 text-xs font-semibold",
@@ -4467,7 +4486,125 @@ function Trip({
     style: {
       color: C.muted
     }
-  }, " \xB7 ", pr.halved, " halved") : null)))))), /*#__PURE__*/React.createElement("section", {
+  }, " \xB7 ", pr.halved, " halved") : null)))))), isAdmin && /*#__PURE__*/React.createElement("button", {
+    onClick: () => {
+      if (window.confirm("Erase all logged rounds? This can't be undone.")) onClear();
+    },
+    className: "self-center rounded-lg px-4 py-2 text-xs font-semibold",
+    style: {
+      color: C.over,
+      border: `1px solid ${C.line}`,
+      background: C.card
+    }
+  }, "Reset all rounds"));
+}
+const Award = ({
+  label,
+  value
+}) => /*#__PURE__*/React.createElement("div", {
+  className: "rounded-xl px-3 py-2",
+  style: {
+    background: "rgba(243,238,227,0.1)",
+    border: "1px solid rgba(201,162,75,0.4)"
+  }
+}, /*#__PURE__*/React.createElement("div", {
+  className: "text-xs",
+  style: {
+    color: C.gold
+  }
+}, label), /*#__PURE__*/React.createElement("div", {
+  className: "text-sm font-semibold",
+  style: {
+    color: C.parchment
+  }
+}, value));
+function tripChampion(allRounds, pars, tally) {
+  const rounds = allRounds.filter(r => !courseById(r.courseId).tiebreaker);
+  const t = {};
+  PLAYERS.forEach(p => t[p.name] = []);
+  rounds.forEach(r => PLAYERS.forEach(p => {
+    const tp = roundToPar(r, p.name, pars);
+    if (tp != null) t[p.name].push(tp);
+  }));
+  const avgs = PLAYERS.map(p => ({
+    name: p.name,
+    rounds: t[p.name].length,
+    total: t[p.name].reduce((x, y) => x + y, 0),
+    avg: t[p.name].length ? t[p.name].reduce((x, y) => x + y, 0) / t[p.name].length : Infinity
+  })).filter(x => x.rounds > 0);
+  const overall = avgs.length ? avgs.slice().sort((a, b) => a.total - b.total)[0] : null;
+  const arr = PLAYERS.map(p => ({
+    name: p.name,
+    ...tally[p.name]
+  }));
+  const moneyL = arr.slice().sort((a, b) => b.total - a.total)[0];
+  const skinsL = arr.slice().sort((a, b) => b.skins - a.skins)[0];
+  const greenieL = arr.slice().sort((a, b) => b.greenieCount - a.greenieCount)[0];
+  const matchL = arr.slice().sort((a, b) => b.match - a.match)[0];
+  const nassauL = arr.slice().sort((a, b) => b.nassau - a.nassau)[0];
+  let low = null;
+  rounds.forEach(r => PLAYERS.forEach(p => {
+    const tp = roundToPar(r, p.name, pars);
+    if (tp != null && (low === null || tp < low.tp)) low = {
+      name: p.name,
+      tp,
+      course: courseById(r.courseId).name.split(" ")[0]
+    };
+  }));
+  return {
+    overall,
+    money: moneyL && moneyL.total > 0 ? moneyL : null,
+    skins: skinsL,
+    greenie: greenieL,
+    match: matchL,
+    nassau: nassauL,
+    low
+  };
+}
+function Money({
+  rounds,
+  pars,
+  stakes,
+  isAdmin,
+  setStakes,
+  onPuttOff
+}) {
+  const hb = rounds.filter(r => r.holeScores);
+  const tally = useMemo(() => seasonMoney(hb, pars, stakes), [hb, pars, stakes]);
+  const cup = useMemo(() => i70Cup(hb), [hb]);
+  const cupStake = Number(stakes.i70 ?? 20);
+  const fullTally = useMemo(() => {
+    const win = cup.net > 0 ? I70.KC : cup.net < 0 ? I70.STL : null;
+    const lose = cup.net > 0 ? I70.STL : cup.net < 0 ? I70.KC : null;
+    const cm = {};
+    PLAYERS.forEach(p => cm[p.name] = 0);
+    if (win) {
+      win.players.forEach(n => cm[n] = cupStake);
+      lose.players.forEach(n => cm[n] = -cupStake);
+    }
+    const out = {};
+    PLAYERS.forEach(p => {
+      const tt = tally[p.name];
+      out[p.name] = {
+        ...tt,
+        i70: cm[p.name],
+        total: tt.total + cm[p.name]
+      };
+    });
+    return out;
+  }, [tally, cup, cupStake]);
+  const tx = useMemo(() => settleUp(fullTally), [fullTally]);
+  const tbs = useMemo(() => tiebreakResults(hb), [hb]);
+  const tax = useMemo(() => dougAdamsTax(hb, pars, stakes.dat), [hb, pars, stakes.dat]);
+  const tied = useMemo(() => allTiedBets(hb, pars, stakes), [hb, pars, stakes]);
+  const moneyRows = PLAYERS.map(p => ({
+    name: p.name,
+    color: p.color,
+    ...fullTally[p.name]
+  })).sort((a, b) => b.total - a.total);
+  return /*#__PURE__*/React.createElement("div", {
+    className: "flex flex-col gap-6"
+  }, /*#__PURE__*/React.createElement("section", {
     className: "rounded-2xl p-4",
     style: {
       background: C.card,
@@ -4747,94 +4884,73 @@ function Trip({
     style: {
       color: C.muted
     }
-  }, "No pushed bets yet \u2014 nothing waiting on either tiebreaker."))), isAdmin && /*#__PURE__*/React.createElement("button", {
-    onClick: () => {
-      if (window.confirm("Erase all logged rounds? This can't be undone.")) onClear();
-    },
-    className: "self-center rounded-lg px-4 py-2 text-xs font-semibold",
-    style: {
-      color: C.over,
-      border: `1px solid ${C.line}`,
-      background: C.card
-    }
-  }, "Reset all rounds"));
-}
-const Award = ({
-  label,
-  value
-}) => /*#__PURE__*/React.createElement("div", {
-  className: "rounded-xl px-3 py-2",
-  style: {
-    background: "rgba(243,238,227,0.1)",
-    border: "1px solid rgba(201,162,75,0.4)"
-  }
-}, /*#__PURE__*/React.createElement("div", {
-  className: "text-xs",
-  style: {
-    color: C.gold
-  }
-}, label), /*#__PURE__*/React.createElement("div", {
-  className: "text-sm font-semibold",
-  style: {
-    color: C.parchment
-  }
-}, value));
-function tripChampion(allRounds, pars, tally) {
-  const rounds = allRounds.filter(r => !courseById(r.courseId).tiebreaker);
-  const t = {};
-  PLAYERS.forEach(p => t[p.name] = []);
-  rounds.forEach(r => PLAYERS.forEach(p => {
-    const tp = roundToPar(r, p.name, pars);
-    if (tp != null) t[p.name].push(tp);
+  }, "No pushed bets yet \u2014 nothing waiting on either tiebreaker."))), /*#__PURE__*/React.createElement(Stakes, {
+    stakes: stakes,
+    isAdmin: isAdmin,
+    setStakes: setStakes
   }));
-  const avgs = PLAYERS.map(p => ({
-    name: p.name,
-    rounds: t[p.name].length,
-    total: t[p.name].reduce((x, y) => x + y, 0),
-    avg: t[p.name].length ? t[p.name].reduce((x, y) => x + y, 0) / t[p.name].length : Infinity
-  })).filter(x => x.rounds > 0);
-  const overall = avgs.length ? avgs.slice().sort((a, b) => a.total - b.total)[0] : null;
-  const arr = PLAYERS.map(p => ({
-    name: p.name,
-    ...tally[p.name]
-  }));
-  const moneyL = arr.slice().sort((a, b) => b.total - a.total)[0];
-  const skinsL = arr.slice().sort((a, b) => b.skins - a.skins)[0];
-  const greenieL = arr.slice().sort((a, b) => b.greenieCount - a.greenieCount)[0];
-  const matchL = arr.slice().sort((a, b) => b.match - a.match)[0];
-  const nassauL = arr.slice().sort((a, b) => b.nassau - a.nassau)[0];
-  let low = null;
-  rounds.forEach(r => PLAYERS.forEach(p => {
-    const tp = roundToPar(r, p.name, pars);
-    if (tp != null && (low === null || tp < low.tp)) low = {
-      name: p.name,
-      tp,
-      course: courseById(r.courseId).name.split(" ")[0]
-    };
-  }));
-  return {
-    overall,
-    money: moneyL && moneyL.total > 0 ? moneyL : null,
-    skins: skinsL,
-    greenie: greenieL,
-    match: matchL,
-    nassau: nassauL,
-    low
-  };
 }
 
 /* ============ misc ============ */
+function CoinMark({
+  size = 44,
+  spin
+}) {
+  return /*#__PURE__*/React.createElement("svg", {
+    width: size,
+    height: size,
+    viewBox: "0 0 40 40",
+    style: spin ? {
+      animation: "bcspin 1.6s linear infinite",
+      transformOrigin: "50% 50%"
+    } : undefined
+  }, /*#__PURE__*/React.createElement("circle", {
+    cx: "20",
+    cy: "20",
+    r: "18.5",
+    fill: "none",
+    stroke: C.gold,
+    strokeWidth: "1.4"
+  }), /*#__PURE__*/React.createElement("circle", {
+    cx: "20",
+    cy: "20",
+    r: "14.5",
+    fill: "none",
+    stroke: C.line,
+    strokeWidth: "1"
+  }), /*#__PURE__*/React.createElement("path", {
+    d: "M20 9 L26.5 25.5 L13.5 25.5 Z",
+    fill: C.gold,
+    opacity: "0.9"
+  }), /*#__PURE__*/React.createElement("rect", {
+    x: "19",
+    y: "25",
+    width: "2",
+    height: "5",
+    rx: "1",
+    fill: C.gold
+  }));
+}
 function Empty({
   text
 }) {
   return /*#__PURE__*/React.createElement("div", {
-    className: "rounded-2xl px-4 py-10 text-center",
+    className: "rounded-2xl px-4 py-12 text-center",
     style: {
       background: C.card,
       border: `1px dashed ${C.line}`,
       color: C.muted
     }
-  }, /*#__PURE__*/React.createElement("p", {
+  }, /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: "flex",
+      justifyContent: "center",
+      marginBottom: 10,
+      opacity: 0.75
+    }
+  }, /*#__PURE__*/React.createElement(CoinMark, {
+    size: 44
+  })), /*#__PURE__*/React.createElement("p", {
     className: "text-sm"
   }, text));
 }

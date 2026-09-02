@@ -1235,7 +1235,7 @@ function App() {
       if (w) u.puttOffWinner = w;else delete u.puttOffWinner;
       save(K_ROUNDS, upsertRound(rounds, u), setRounds);
     }
-  }) : /*#__PURE__*/React.createElement(Courses, {
+  }) : showTab === "sound" ? /*#__PURE__*/React.createElement(Soundboard, null) : /*#__PURE__*/React.createElement(Courses, {
     pars: pars,
     isAdmin: isAdmin,
     setPars: v => save(K_PARS, v, setPars)
@@ -1474,7 +1474,7 @@ function Tabs({
   setTab,
   isAdmin
 }) {
-  const base = [["play", "Play"], ["rounds", "Rounds"], ["trip", "Leaderboard"], ["money", "Money"], ["ghost", "Ghost"], ["stats", "Stats"], ["schedule", "Schedule"], ["courses", "Courses"], ["history", "History"]];
+  const base = [["play", "Play"], ["rounds", "Rounds"], ["trip", "Leaderboard"], ["money", "Money"], ["ghost", "Ghost"], ["stats", "Stats"], ["schedule", "Schedule"], ["courses", "Courses"], ["history", "History"], ["sound", "Soundboard"]];
   const items = base;
   const auth = typeof window !== "undefined" ? window.BC_AUTH : null;
   return /*#__PURE__*/React.createElement("nav", {
@@ -5249,6 +5249,79 @@ function CoinMark({
     rx: "1",
     fill: C.gold
   }));
+}
+const SOUNDS = [{
+  label: "Alrighty Then",
+  file: "alrighty-then.mp3"
+}, {
+  label: "Fuck It",
+  file: "fuck-it.mp3"
+}, {
+  label: "Diarrhea",
+  file: "diarrhea.mp3"
+}, {
+  label: "Doo Doo",
+  file: "doo-doo.mp3"
+}, {
+  label: "I Can't Stop Eating",
+  file: "i-can-t-stop-eating.mp3"
+}, {
+  label: "I'm Living in a Nightmare",
+  file: "i-m-living-in-a-nightmare.mp3"
+}];
+function Soundboard() {
+  const cur = useRef(null);
+  const [playing, setPlaying] = useState(null);
+  const [missing, setMissing] = useState(null);
+  const play = s => {
+    setMissing(null);
+    try {
+      if (cur.current) {
+        cur.current.pause();
+        cur.current.currentTime = 0;
+      }
+    } catch (e) {}
+    const a = new Audio(s.file);
+    cur.current = a;
+    setPlaying(s.label);
+    a.onended = () => setPlaying(p => p === s.label ? null : p);
+    a.onerror = () => {
+      setPlaying(p => p === s.label ? null : p);
+      setMissing(s.label);
+    };
+    const pr = a.play();
+    if (pr && pr.catch) pr.catch(() => {
+      setPlaying(p => p === s.label ? null : p);
+      setMissing(s.label);
+    });
+  };
+  return /*#__PURE__*/React.createElement("div", {
+    className: "flex flex-col gap-4"
+  }, /*#__PURE__*/React.createElement("p", {
+    className: "text-sm",
+    style: {
+      color: C.muted
+    }
+  }, "Tap to play. Upload these ", /*#__PURE__*/React.createElement("b", null, ".mp3"), " files to your repo (right next to index.html) \u2014 no folder needed."), /*#__PURE__*/React.createElement("div", {
+    className: "grid grid-cols-2 gap-3"
+  }, SOUNDS.map(s => /*#__PURE__*/React.createElement("button", {
+    key: s.label,
+    onClick: () => play(s),
+    className: "rounded-2xl px-3 py-6 font-bold",
+    style: {
+      fontSize: 15,
+      background: playing === s.label ? C.pine : C.card,
+      color: playing === s.label ? C.parchment : C.ink,
+      border: `1px solid ${playing === s.label ? C.pine : C.line}`,
+      boxShadow: "0 2px 6px rgba(27,58,47,0.12)",
+      transition: "background 0.1s, color 0.1s"
+    }
+  }, playing === s.label ? "▶  " : "", s.label))), missing && /*#__PURE__*/React.createElement("p", {
+    className: "text-xs",
+    style: {
+      color: C.over
+    }
+  }, "No audio found for \"", missing, "\" \u2014 add ", SOUNDS.find(x => x.label === missing).file, " to the repo."));
 }
 function Empty({
   text

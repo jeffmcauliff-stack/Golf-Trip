@@ -5283,6 +5283,99 @@ const SOUNDS = [{
 }, {
   label: "I'm Living in a Nightmare",
   file: "i-m-living-in-a-nightmare.mp3"
+}, {
+  label: "Gained the Lead",
+  file: "gained-the-lead.mp3"
+}, {
+  label: "Lost the Lead",
+  file: "los-the-lead.mp3"
+}, {
+  label: "He Can Still Make 5",
+  file: "easy-guys-he-can-still-make-5-he-can-still-make-5.mp3"
+}, {
+  label: "Found the Water Again",
+  file: "he-has-found-the-water-for-the-third-straight-day.mp3"
+}, {
+  label: "Is That the Joke?",
+  file: "is-that-the-joke.mp3"
+}, {
+  label: "Let Me Think About It",
+  file: "let-me-think-about-it-for-a-minute.mp3"
+}, {
+  label: "It'll Impress Them",
+  file: "be-sure-to-do-that-in-the-open-it-ll-impress-them.mp3"
+}, {
+  label: "In the Zone",
+  file: "in-the-zone.mp3"
+}, {
+  label: "King of the Hill",
+  file: "king-of-the-hill.mp3"
+}, {
+  label: "Killing Spree",
+  file: "killing-spree.mp3"
+}, {
+  label: "Killing Spree 2",
+  file: "killing-spree_2.mp3"
+}, {
+  label: "I Am Invincible",
+  file: "i-am-invincible-goldeneye.mp3"
+}, {
+  label: "Power Up",
+  file: "power-up.mp3"
+}, {
+  label: "Life Lost",
+  file: "life-lost.mp3"
+}, {
+  label: "Good Luck Star Fox",
+  file: "good-luck-star-fox.mp3"
+}, {
+  label: "Okie Dokie",
+  file: "mario-okiedokie.mp3"
+}, {
+  label: "Toad!",
+  file: "mario-kart-64-toad-aawowowowow.mp3"
+}, {
+  label: "Dodgson Here",
+  file: "dodgson-we-ve-got-dodgson-here.mp3"
+}, {
+  label: "Dino DNA",
+  file: "dino-dna.mp3"
+}, {
+  label: "I Hope I Don't Jack Off",
+  file: "i-hope-i-don-t-jack-off.mp3"
+}, {
+  label: "A Tradition Unlike Any Other",
+  file: "a-tradition-unlike-any-other-tradition-unlike-any-other-ritual-masters-jim-nantz-meme.mp3"
+}, {
+  label: "At Least You're Out of the Tree",
+  file: "at-least-you-re-out-of-the-tree.mp3"
+}, {
+  label: "There's a Beverage Here",
+  file: "theresabeveragehere.mp3"
+}, {
+  label: "Need to Loosen Up",
+  file: "need-to-loosen-up.mp3"
+}, {
+  label: "Try a Somersault",
+  file: "try-a-somersault.mp3"
+}, {
+  label: "Do a Barrel Roll",
+  file: "do-a-barrel-roll.mp3"
+}, {
+  label: "Game Over",
+  file: "game-over.mp3"
+}, {
+  label: "'Nam",
+  file: "nam.mp3"
+}, {
+  label: "Only One Who Cares About Rules",
+  file: "onlyonewhocaresaboutrules.mp3"
+}, {
+  label: "Hey Einstein, I'm On Your Side",
+  file: "hey-einstein-i-m-on-your-side.mp3"
+}, {
+  label: "Phone's Ringing, Dude",
+  file: "phonesringingdude.mp3"
 }];
 function Soundboard() {
   const cur = useRef(null);
@@ -5312,12 +5405,7 @@ function Soundboard() {
   };
   return /*#__PURE__*/React.createElement("div", {
     className: "flex flex-col gap-4"
-  }, /*#__PURE__*/React.createElement("p", {
-    className: "text-sm",
-    style: {
-      color: C.muted
-    }
-  }, "Tap to play. Upload these ", /*#__PURE__*/React.createElement("b", null, ".mp3"), " files to your repo (right next to index.html) \u2014 no folder needed."), /*#__PURE__*/React.createElement("div", {
+  }, /*#__PURE__*/React.createElement("div", {
     className: "grid grid-cols-2 gap-3"
   }, SOUNDS.map(s => /*#__PURE__*/React.createElement("button", {
     key: s.label,
